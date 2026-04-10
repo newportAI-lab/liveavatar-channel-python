@@ -19,6 +19,7 @@ Since the Live Avatar system also supports text communication via LiveKit Data C
 We use the term "event" to designate message types. To prevent confusion as the number of message types grows, a specific set of conventions has been established.
 
 ### Three-Part Semantic Structure
+
 ```
 <domain>.<action>[.<stage>]
 ```
@@ -189,6 +190,7 @@ sequenceDiagram
 ### 1️⃣ Establishing Connection
 
 #### Client (Live Avatar Service) → Server (Developer Service)
+
 ```json
 {
   "event": "session.init",
@@ -202,6 +204,7 @@ sequenceDiagram
 ---
 
 #### (Developer Service) → Client (Live Avatar Service)
+
 ```json
 {
   "event": "session.ready"
@@ -284,6 +287,7 @@ Sent by the Developer Service **before** the first `response.chunk`. Use this to
 ---
 
 #### chunk (Text)
+
 ```json
 {
   "event": "response.chunk",
@@ -300,6 +304,7 @@ Sent by the Developer Service **before** the first `response.chunk`. Use this to
 ---
 
 #### done (Text)
+
 ```json
 {
   "event": "response.done",
@@ -421,6 +426,7 @@ This message is typically sent proactively by the system just before a timeout i
 ### ASR Recognition (The party providing ASR is responsible for sending these messages)
 
 #### User Speech-to-Text Recognition (Streaming / Partial)
+
 ```json
 {
   "event": "input.asr.partial",
@@ -436,6 +442,7 @@ This message is typically sent proactively by the system just before a timeout i
 ---
 
 #### User Speech-to-Text Recognition (Final Result)
+
 ```json
 {
   "event": "input.asr.final",
@@ -451,6 +458,7 @@ This message is typically sent proactively by the system just before a timeout i
 ### Voice Input Start / End Detection (The party providing ASR is responsible for sending these messages)
 
 #### Voice Input Start Detected
+
 ```json
 {
   "event": "input.voice.start",
@@ -459,6 +467,7 @@ This message is typically sent proactively by the system just before a timeout i
 ```
 
 #### Voice Input End Detected
+
 ```json
 {
   "event": "input.voice.finish",
@@ -475,6 +484,7 @@ It is acceptable to send only `input.asr.final`; `input.asr.partial` is an optio
 ### Speech Output Start / End Detection (The party providing TTS is responsible for sending these messages)
 
 #### Speech Output Started
+
 ```json
 {
   "event": "response.audio.start",
@@ -484,6 +494,7 @@ It is acceptable to send only `input.asr.final`; `input.asr.partial` is an optio
 ```
 
 #### Speech Output Finished
+
 ```json
 {
   "event": "response.audio.finish",
@@ -633,6 +644,7 @@ Both TS and Seq function as wrapping counters. The receiving end **must** use mo
 ### The Jitter Buffer Must Be Based on TS (Not Seq)
 
 Sorting priority:
+
 1. TS (Primary sorting key)
 2. Seq (Secondary key for duplicate removal)
 

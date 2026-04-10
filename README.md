@@ -1,6 +1,6 @@
 # Live Avatar Channel SDK (Python)
 
-[中文版](README.zh.md)
+**English** | [中文](./README.zh.md)
 
 A Python SDK for the Live Avatar WebSocket protocol, supporting text, audio, and image communication between your server and a live avatar service.
 
@@ -11,6 +11,7 @@ A Python SDK for the Live Avatar WebSocket protocol, supporting text, audio, and
 - `sortedcontainers`
 
 Optional (reference server only):
+
 - `fastapi >= 0.100`
 - `uvicorn >= 0.20`
 
