@@ -1,9 +1,0 @@
-pyproject.toml
-liveavatar_channel_sdk/__init__.py
-liveavatar_channel_sdk.egg-info/PKG-INFO
-liveavatar_channel_sdk.egg-info/SOURCES.txt
-liveavatar_channel_sdk.egg-info/dependency_links.txt
-liveavatar_channel_sdk.egg-info/requires.txt
-liveavatar_channel_sdk.egg-info/top_level.txt
-liveavatar_channel_sdk/example/__init__.py
-liveavatar_channel_server_example/__init__.py

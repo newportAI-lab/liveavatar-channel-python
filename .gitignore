@@ -1,3 +1,8 @@
 /.claude
 /liveavatar_channel_sdk/__pycache__
 /liveavatar_channel_sdk/example/__pycache__
+/tests/__pycache__
+/.idea/
+/docs/
+/liveavatar_channel_sdk.egg-info/
+.DS_Store
