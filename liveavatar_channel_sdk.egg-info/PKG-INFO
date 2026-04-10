@@ -1,0 +1,18 @@
+Metadata-Version: 2.4
+Name: liveavatar-channel-sdk
+Version: 0.1.0
+Summary: Live Avatar Channel SDK - Python WebSocket protocol for live avatar communication
+Author: Live Avatar Team
+License: MIT
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+Requires-Dist: websockets>=12
+Requires-Dist: sortedcontainers
+Provides-Extra: server
+Requires-Dist: fastapi; extra == "server"
+Requires-Dist: uvicorn[standard]; extra == "server"
+Provides-Extra: dev
+Requires-Dist: pytest; extra == "dev"
+Requires-Dist: pytest-asyncio; extra == "dev"
+Requires-Dist: ruff; extra == "dev"
+Requires-Dist: black; extra == "dev"

@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -m pip install -e \".[dev]\")",
+      "Bash(python3 -m pip install --break-system-packages -e \".[dev]\")",
+      "Bash(python3:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(python:*)"
+    ]
+  }
+}
