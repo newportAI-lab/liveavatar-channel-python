@@ -1,41 +1,47 @@
-# 协议综述
-websocket服务地址需要开发者提供，data channel 由livekit提供。
+# Protocol Overview
 
-websocket通道处理文本/音频/视频（其实是图片,协议暂时不包含这部分）
+**English** | [中文](./PROTOCOL.zh.md)
 
-data channel 只处理文本， 音频由 audio track 处理， 视频由video track处理（这三个通道都是livekit提供的）
+This protocol defines the WebSocket communication between the Live Avatar (digital human) service and developer services, covering text, audio, and image content.
 
-## 场景支持考量
-1. websocket和webrtc  data channel 使用的文本协议格式保持一致（除了心跳部分）。
-2. 消息类型语义化，方便理解。
-3. 支持流式数据传输。
-4. 抗乱序。
-5. 支持对多用户房间扩展。
+Since the Live Avatar system also supports text communication via LiveKit Data Channel, the protocol documentation also covers the Data Channel protocol.
 
-## 文本消息类型命名规范
-我们用event 来指代消息类型，为了防止消息类型增长过程中出现的混乱，需要定制一系列规范。
+## Design Goals
 
-### 三段式语义
+1. WebSocket and WebRTC Data Channel share the same text protocol format (except for heartbeat).
+2. Semantic message type naming for ease of understanding.
+3. Streaming data transmission support.
+4. Out-of-order resilience.
+5. Extensible to multi-user room scenarios.
+
+## Text Message Type Naming Conventions
+
+We use the term "event" to designate message types. To prevent confusion as the number of message types grows, a specific set of conventions has been established.
+
+### Three-Part Semantic Structure
+```
 <domain>.<action>[.<stage>]
+```
 
-#### 1️⃣ 第一层：Domain（领域分类）
-| Domain | 含义 |
+#### 1️⃣ Layer 1: Domain (Category)
+
+| Domain | Meaning |
 | --- | --- |
-| session | 会话生命周期 |
-| input | 用户输入 |
-| response | 模型输出 |
-| control | 控制信号 |
-| system | 系统行为 |
-| error | 错误 |
-| tool（未来） | 工具调用 |
-
+| session | Session lifecycle |
+| input | User input |
+| response | Model output |
+| control | Control signals |
+| system | System behavior |
+| error | Error |
+| tool (future) | Tool calls |
 
 ---
 
-#### 2️⃣ 第二层：Action（动作）
-描述“做什么”
+#### 2️⃣ Layer 2: Action
 
-| Action | 示例 |
+Describes "what is being done"
+
+| Action | Example |
 | --- | --- |
 | init | session.init |
 | ready | session.ready |
@@ -45,15 +51,15 @@ data channel 只处理文本， 音频由 audio track 处理， 视频由video t
 | done | response.done |
 | interrupt | control.interrupt |
 | prompt | system.prompt |
-| idle trigger | system.idleTrigger |
-
+| idleTrigger | system.idleTrigger |
 
 ---
 
-#### 3️⃣ 第三层：Stage（阶段，可选）
-用于“流式/状态”
+#### 3️⃣ Layer 3: Stage (Optional)
 
-| Stage | 示例 |
+Used for "streaming / state"
+
+| Stage | Example |
 | --- | --- |
 | partial | input.asr.partial |
 | final | input.asr.final |
@@ -61,31 +67,129 @@ data channel 只处理文本， 音频由 audio track 处理， 视频由video t
 | done | response.done |
 | cancel | response.cancel |
 
+---
 
-# 文本协议分场景协议设计
-## WebSocket inbound/outbound模式。
-### inbound模式
-inbound 模式是指数字人服务提供webscoket服务地址，开发者服务来请求数字人服务提供的websocket服务。
+# Text Protocol Design
 
-它的整体执行时序如下：
+## WebSocket Inbound / Outbound Modes
 
-![](https://cdn.nlark.com/yuque/__mermaid_v3/6efaa31059f5d813f560496dba52dffb.svg)
+### Inbound Mode
 
-### outbound模式
-outbound 模式是指开发者服务提供webscoket服务地址, 数字人服务来请求开发者服务提供的websocket服务。
+In Inbound mode, the Live Avatar service provides the WebSocket server address and the developer service connects to it as a client.
 
-它的整体执行时序如下：
+```mermaid
+sequenceDiagram
+    autonumber
+    participant User as User (Frontend SDK)
+    participant AppServer as Developer Backend
+    participant Platform as Live Avatar Service
+    participant RTC as RTC Room (SFU)
+    participant Avatar as Avatar Engine
 
-![](https://cdn.nlark.com/yuque/__mermaid_v3/de757efe651bd0744c875a353d4e9673.svg)
+    %% 1. Auth & Initialization
+    AppServer->>Platform: /auth/getAuthToken (API Key)
+    Platform->>AppServer: Return session_token
+    AppServer->>User: Return session_token
 
-### 两种模式的适用场景
-+ 如果你的业务对**极低延迟和大规模并发稳定性**有要求，且你有成熟的运维团队能暴露稳定的公网端点，**Outbound** 在架构美感和资源受控度上更优。
-+ 如果你追求**快速交付、内网安全**，且不希望处理复杂的防火墙穿透问题，**Inbound** 带来的微小性能损失在 Java 异步框架（如 Netty/WebFlux）下几乎可以忽略不计。
+    User->>Platform: /session/start
+    Platform->>Avatar: Start avatar
+    Avatar->>RTC: Join room
+    Avatar->>Platform: Start complete
+    Platform->>User: Return clientRtcToken + sessionId
 
-## 场景一：WebSocket 全流程（标准路径）
-### 1️⃣ 建立连接
-#### Client (数字人服务)→ Server（开发者服务）
-```plain
+    %% Key difference: Inbound mode connection initiation
+    rect rgb(255, 240, 220)
+    Note over AppServer, Platform: [Inbound Key Difference]
+    User->>AppServer: 5a. Notify developer backend (with sessionId)
+    AppServer-->>Platform: 5b. Establish WebSocket connection (as Client)
+    Note right of AppServer: Developer side needs no public IP<br/>Only needs to verify platform certificate
+    end
+
+    %% 2. RTC link establishment
+    User->>RTC: Join room
+    User-->>RTC: Publish text/audio stream
+
+    %% 3. Core business loop
+    Platform-->>RTC: Subscribe to user text/audio stream
+    Platform->>AppServer: Forward to developer backend via WebSocket
+
+    alt Text mode
+        AppServer-->>Avatar: Return reply text
+        Avatar->>Avatar: Internal TTS conversion
+    else Audio mode
+        AppServer-->>Avatar: Return reply audio stream
+    end
+
+    %% 4. Avatar feedback
+    Avatar->>RTC: Publish avatar audio/video stream
+    RTC-->>User: Subscribe and render
+```
+
+### Outbound Mode
+
+In Outbound mode, the developer service provides the WebSocket server address and the Live Avatar service connects to it as a client.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant User as User (Frontend SDK)
+    participant AppServer as Developer Backend
+    participant Platform as Live Avatar Service
+    participant RTC as RTC Room (SFU)
+    participant Avatar as Avatar Engine
+
+    %% 1. Auth & Initialization
+    AppServer->>Platform: /auth/getAuthToken (API Key)
+    Platform->>AppServer: Return session_token
+    AppServer->>User: Return session_token
+
+    User->>Platform: /session/start
+
+    %% Key difference: Outbound mode connection initiation
+    rect rgb(220, 245, 220)
+    Note over Platform, AppServer: [Outbound Key Difference]
+    Platform-->>AppServer: 5. Establish WebSocket connection (platform as Client)
+    Note left of AppServer: Developer side must expose public IP/domain<br/>Must handle platform handshake auth
+    end
+
+    Platform->>Avatar: Start avatar
+    Avatar->>RTC: Join room
+    Avatar->>Platform: Start complete
+    Platform->>User: Return clientRtcToken
+
+    %% 2. RTC link establishment
+    User->>RTC: Join room
+    User-->>RTC: Publish text/audio stream
+
+    %% 3. Core business loop
+    Platform-->>RTC: Subscribe to user text/audio stream
+    Platform->>AppServer: Forward to developer backend via WebSocket
+
+    alt Text mode
+        AppServer-->>Avatar: Return reply text
+        Avatar->>Avatar: Internal TTS conversion
+    else Audio mode
+        AppServer-->>Avatar: Return reply audio stream
+    end
+
+    %% 4. Avatar feedback
+    Avatar->>RTC: Publish avatar audio/video stream
+    RTC-->>User: Subscribe and render
+```
+
+### Choosing Between the Two Modes
+
+- If your business demands **ultra-low latency and large-scale concurrency stability**, and you have a mature ops team capable of exposing a stable public endpoint, **Outbound** offers better architectural clarity and resource control.
+- If you prioritize **rapid delivery and internal network security**, and want to avoid complex firewall traversal, **Inbound** introduces only a negligible performance overhead that is nearly imperceptible under async Java frameworks such as Netty or WebFlux.
+
+---
+
+## Scenario 1: WebSocket Full Flow (Standard Path)
+
+### 1️⃣ Establishing Connection
+
+#### Client (Live Avatar Service) → Server (Developer Service)
+```json
 {
   "event": "session.init",
   "data": {
@@ -97,8 +201,8 @@ outbound 模式是指开发者服务提供webscoket服务地址, 数字人服务
 
 ---
 
-#### （开发者服务） → Client (数字人服务)
-```plain
+#### (Developer Service) → Client (Live Avatar Service)
+```json
 {
   "event": "session.ready"
 }
@@ -106,36 +210,40 @@ outbound 模式是指开发者服务提供webscoket服务地址, 数字人服务
 
 ---
 
-### 2️⃣ 心跳
-依靠 WebSocket 协议标准控制帧。
+### 2️⃣ Heartbeat
 
-遵循标准 WebSocket 协议（RFC 6455）：
+Relies on standard WebSocket protocol control frames.
 
-+ **Ping (0x9)**：服务器可能会向客户端发送 Ping 帧。
-+ **Pong (0xA)**：客户端收到 Ping 帧后，必须自动回复 Pong 帧。
+Adheres to the standard WebSocket protocol (RFC 6455):
+
+- **Ping (0x9)**: The server may send Ping frames to the client.
+- **Pong (0xA)**: Upon receiving a Ping frame, the client must automatically reply with a Pong frame.
 
 ---
 
-### 3️⃣ 用户输入文本
-数字人服务发送文本输入消息
+### 3️⃣ User Text Input
 
-```plain
+The Live Avatar Service sends a text input message.
+
+```json
 {
   "event": "input.text",
   "requestId": "req_1",
   "data": {
-    "text": "你叫什么名字"
+    "text": "What is your name?"
   }
 }
 ```
 
 ---
 
-### 4️⃣ 开发者服务流式输出
-#### 输出开始（文本）
-可选的事件，如果你需要对数字人服务提供的TTS进行语速，音量，情绪等的控制，可以在发送chunk事件前发送该消息。
+### 4️⃣ Developer Service Streaming Output
 
-```plain
+#### start (Optional)
+
+Sent by the Developer Service **before** the first `response.chunk`. Use this to configure the TTS engine managed by the Live Avatar Service (speed, volume, mood). Omit it to use default settings. If TTS is provided by the developer, this message is also unnecessary.
+
+```json
 {
   "event": "response.start",
   "requestId": "req_1",
@@ -150,43 +258,33 @@ outbound 模式是指开发者服务提供webscoket服务地址, 数字人服务
 }
 ```
 
+**`speed` reference**
 
-
-**Speed取值对照表**
-
-| 值 | 含义 |
+| Value | Meaning |
 | --- | --- |
-| 1.0 | 正常语速 |
-| 0.5 | 很慢（适合教学/老人） |
-| 0.8 | 稍慢 |
-| 1.2 | 稍快 |
-| 1.5 | 很快 |
-| 2.0 | 极限快（不保证清晰） |
+| 0.5 | Very slow (suitable for teaching / elderly users) |
+| 0.8 | Slightly slow |
+| 1.0 | Normal (default) |
+| 1.2 | Slightly fast |
+| 1.5 | Very fast |
+| 2.0 | Maximum speed (clarity not guaranteed) |
 
+**`volume` reference**
 
-**volume取值对照表**
-
-| **值** | **含义** |
+| Value | Meaning |
 | --- | --- |
-| **0.0** | **静音** |
-| **0.5** | **较小** |
-| **1.0** | **标准** |
-| **1.2** | **偏大** |
-| **1.5** | **最大（可能爆音）** |
+| 0.0 | Muted |
+| 0.5 | Quiet |
+| 1.0 | Standard (default) |
+| 1.2 | Loud |
+| 1.5 | Maximum (may clip) |
 
+**`mood` values** (extensible): `neutral` · `happy` · `sad` · `angry` · `excited` · `calm` · `serious`
 
-**mood可选取值(可扩展)**
+---
 
-+ neutral
-+ happy
-+ sad
-+ angry
-+ excited
-+ calm
-+ serious
-
-#### chunk（文本）
-```plain
+#### chunk (Text)
+```json
 {
   "event": "response.chunk",
   "requestId": "req_1",
@@ -194,15 +292,15 @@ outbound 模式是指开发者服务提供webscoket服务地址, 数字人服务
   "seq": 12,
   "timestamp": 1710000000000,
   "data": {
-    "text": "你好"
+    "text": "Hello"
   }
 }
 ```
 
 ---
 
-#### done（文本）
-```plain
+#### done (Text)
+```json
 {
   "event": "response.done",
   "requestId": "req_1",
@@ -214,14 +312,15 @@ outbound 模式是指开发者服务提供webscoket服务地址, 数字人服务
 
 requestId → responseId = 1:N
 
-seq = response 内递增。
+`seq` increments sequentially within a single response.
 
-response  可以是多个agent回复的。
+A single response may consist of replies from multiple agents.
 
+---
 
+### 5️⃣ State Synchronization (Sent by the Live Avatar Service)
 
-### 5️⃣ 状态同步（数字人服务发送）
-```plain
+```json
 {
   "event": "session.state",
   "seq": 12,
@@ -232,68 +331,103 @@ response  可以是多个agent回复的。
 }
 ```
 
-seq = session 内递增。
+`seq` increments sequentially within a single session. All `state` values (subject to future expansion):
 
-state 所有的值（后续可能扩展）
-
-| **<font style="color:rgb(31, 31, 31);">状态</font>** | **<font style="color:rgb(31, 31, 31);">谁在说话</font>** | **<font style="color:rgb(31, 31, 31);">系统行为</font>** |
+| **State** | **Speaker** | **System Behavior** |
 | --- | --- | --- |
-| **<font style="color:rgb(31, 31, 31);">IDLE</font>** | <font style="color:rgb(31, 31, 31);">无</font> | <font style="color:rgb(31, 31, 31);">等待输入</font> |
-| **<font style="color:rgb(31, 31, 31);">LISTENING</font>** | <font style="color:rgb(31, 31, 31);">用户</font> | <font style="color:rgb(31, 31, 31);">ASR 收音</font> |
-| **<font style="color:rgb(31, 31, 31);">THINKING</font>** | <font style="color:rgb(31, 31, 31);">系统 (脑)</font> | <font style="color:rgb(31, 31, 31);">LLM/TTS 准备</font> |
-| **<font style="color:rgb(31, 31, 31);">STAGING</font>** | <font style="color:rgb(31, 31, 31);">系统 (身)</font> | <font style="color:rgb(31, 31, 31);">准备生成数字人</font> |
-| **<font style="color:rgb(31, 31, 31);">SPEAKING</font>** | <font style="color:rgb(31, 31, 31);">系统 (身)</font> | <font style="color:rgb(31, 31, 31);">数字人正常回答输出</font> |
-| **<font style="color:rgb(31, 31, 31);">PROMPT_THINKING</font>** | <font style="color:rgb(31, 31, 31);">系统 (脑)</font> | <font style="color:rgb(31, 31, 31);">准备提醒话术</font> |
-| **<font style="color:rgb(31, 31, 31);">PROMPT_STAGING</font>** | <font style="color:rgb(31, 31, 31);">系统 (身)</font> | <font style="color:rgb(31, 31, 31);">准备生成数字人</font> |
-| **<font style="color:rgb(31, 31, 31);">PROMPT_SPEAKING</font>** | <font style="color:rgb(31, 31, 31);">系统 (身)</font> | <font style="color:rgb(31, 31, 31);">数字人播报提醒语音</font> |
-
+| **IDLE** | None | Awaiting input |
+| **LISTENING** | User | ASR input capture |
+| **THINKING** | System (Mind) | LLM/TTS preparation |
+| **STAGING** | System (Body) | Preparing Live Avatar generation |
+| **SPEAKING** | System (Body) | Live Avatar: normal response output |
+| **PROMPT_THINKING** | System (Mind) | Preparing reminder script |
+| **PROMPT_STAGING** | System (Body) | Preparing to generate Live Avatar |
+| **PROMPT_SPEAKING** | System (Body) | Live Avatar: broadcasting reminder audio |
 
 ---
 
-### 6️⃣ 打断（开发者服务发送）
-```plain
+### 6️⃣ Interrupt (Sent by Developer Service)
+
+```json
 {
   "event": "control.interrupt",
-  "requestId":req_2"
+  "requestId": "req_2"
 }
 ```
 
-<font style="color:rgb(51, 51, 51);">开发者服务发起的信号。</font>
+A signal initiated by the Developer Service.
 
-<font style="color:rgb(51, 51, 51);">数字人服务只负责执行中断动作。 对文本输入和音频输入都是同样逻辑，区别在于 开发者服务判定中断的策略： 文本输入 → 立即触发。 音频输入 → 依赖 VAD 或策略判定。</font>
+The Live Avatar Service is solely responsible for executing the interrupt action. The logic applies identically to both text input and audio input; the distinction lies in the Developer Service's strategy for determining when to interrupt: Text input → trigger immediately. Audio input → relies on VAD (Voice Activity Detection) or a specific policy.
 
-<font style="color:rgb(51, 51, 51);">打断时传入requestId可以帮助精准打断指定的对话，避免因为网络抖动导致误打断，也可以不填。</font>
+Providing `requestId` helps ensure that a specific, designated conversation is interrupted precisely, preventing erroneous interruptions caused by network instability. This field is optional.
 
-为了方便理解，我们提供打断执行的时序图
+The following sequence diagram illustrates the interrupt execution flow:
 
-![](https://cdn.nlark.com/yuque/__mermaid_v3/1769342f8157412036e9cbe336423435.svg)
+```mermaid
+sequenceDiagram
+    autonumber
+    participant User as User (Frontend SDK)
+    participant AppServer as Developer Backend (Handler)
+    participant Task as Response Task (LLM/TTS)
+    participant Avatar as Live Avatar Service (Platform/RTC)
+
+    Note over User, Avatar: Scenario 1: Avatar is speaking, user sends a text message
+    User->>AppServer: 1. Send text message (input.text)
+
+    rect rgb(240, 248, 255)
+        Note right of AppServer: [Text Hard Interrupt]
+        AppServer->>Task: 2. cancelCurrentResponse() (terminate old task)
+        AppServer->>Avatar: 3. control.interrupt (flush RTC buffer)
+    end
+
+    AppServer->>Task: 4. processTextInput (start new task)
+    Task-->>Avatar: 5. Push new reply text/audio
+    Avatar-->>User: 6. Render new reply
+
+    Note over User, Avatar: Scenario 2: Avatar is speaking, user starts speaking (voice interrupt)
+    User->>AppServer: 7. Send audio stream (Binary Frame)
+
+    AppServer->>AppServer: 8. asrService.detectVoiceActivity (VAD triggered)
+
+    rect rgb(255, 240, 245)
+        Note right of AppServer: [Voice Real-time Interrupt]
+        AppServer->>Task: 9. cancelCurrentResponse() (cut off at the source)
+        AppServer->>Avatar: 10. control.interrupt (issue command)
+    end
+
+    AppServer->>AppServer: 11. Continue ASR recognition & business logic
+    Note over User, Avatar: Repeat steps 4-6 for new reply flow
+```
 
 ---
 
-###  7️⃣ 即将关闭连接（数字人服务发送）
-```plain
+### 7️⃣ Connection Imminently Closing (Sent by the Live Avatar Service)
+
+```json
 {
   "event": "session.closing",
   "data": {
-    "reason": "timeout" 
+    "reason": "timeout"
   }
 }
 ```
 
-这种消息一般是系统判定超时前主动发送的。
+This message is typically sent proactively by the system just before a timeout is declared.
 
-## 场景二：ASR + 实时语音 （开发者服务发送）
 ---
 
-### ASR识别(ASR由谁来提供，消息就由谁来发送)
-#### 用户说话文本识别（流式）
-```plain
+## Scenario 2: ASR + Real-time Voice (Sent by the Developer Service)
+
+### ASR Recognition (The party providing ASR is responsible for sending these messages)
+
+#### User Speech-to-Text Recognition (Streaming / Partial)
+```json
 {
   "event": "input.asr.partial",
   "requestId": "req_2",
   "seq": 3,
   "data": {
-    "text": "你叫",
+    "text": "What is your",
     "final": false
   }
 }
@@ -301,45 +435,47 @@ state 所有的值（后续可能扩展）
 
 ---
 
-#### 用户说话文本识别（最终结果）
-```plain
+#### User Speech-to-Text Recognition (Final Result)
+```json
 {
   "event": "input.asr.final",
   "requestId": "req_2",
   "data": {
-    "text": "你叫什么名字"
+    "text": "What is your name?"
   }
 }
 ```
 
 ---
 
-### 语音输入开始/结束检测(ASR由谁来提供，消息谁来发送)
-#### 检测到语音输入开始
-```plain
+### Voice Input Start / End Detection (The party providing ASR is responsible for sending these messages)
+
+#### Voice Input Start Detected
+```json
 {
   "event": "input.voice.start",
   "requestId": "req_1"
 }
 ```
 
-#### 检测到语音输入结束
-```plain
+#### Voice Input End Detected
+```json
 {
   "event": "input.voice.finish",
   "requestId": "req_1"
 }
 ```
 
-可以只发input.asr.final这个event，input.asr.partial 属于optional类消息 
+It is acceptable to send only `input.asr.final`; `input.asr.partial` is an optional message.
 
-👉 后续流程同 text
+👉 The subsequent workflow is identical to that of text input.
 
+---
 
+### Speech Output Start / End Detection (The party providing TTS is responsible for sending these messages)
 
-### 语音输入开始/结束检测(TTS由谁来提供，消息谁来发送)
-#### **语音输出开始**
-```plain
+#### Speech Output Started
+```json
 {
   "event": "response.audio.start",
   "requestId": "req_1",
@@ -347,8 +483,8 @@ state 所有的值（后续可能扩展）
 }
 ```
 
-#### **语音输出结束**
-```plain
+#### Speech Output Finished
+```json
 {
   "event": "response.audio.finish",
   "requestId": "req_1",
@@ -356,19 +492,21 @@ state 所有的值（后续可能扩展）
 }
 ```
 
-**TTS由开发者提供的情况**:
+**Scenario: TTS provided by the Developer Service**
 
-发送语音输出开始消息后开发者服务推送对应的语音数据，语音数据推送完毕再发送语音输出结束消息.
+After sending the "Speech Output Started" message, the developer service pushes the corresponding audio data. Once the audio data transmission is complete, the "Speech Output Finished" message is sent.
 
-**TTS由数字人服务提供的情况**:
+**Scenario: TTS provided by the Live Avatar Service**
 
-发送语音输出开始消息后数字人服务推送对应的语音数据，语音数据推送完毕再发送语音输出结束消息.
+After sending the "Speech Output Started" message, the Live Avatar Service pushes the corresponding audio data. Once the audio data transmission is complete, the "Speech Output Finished" message is sent.
 
 ---
 
-## 场景三：服务端主动驱动（冷场唤醒）
-### **1️⃣**** 闲置事件（数字人服务发）**
-```plain
+## Scenario 3: Server-Initiated Interaction (Idle Wake-up)
+
+### 1️⃣ Idle Event (Sent by the Live Avatar Service)
+
+```json
 {
   "event": "system.idleTrigger",
   "data": {
@@ -378,11 +516,12 @@ state 所有的值（后续可能扩展）
 }
 ```
 
-系统检测到数字人已经闲置了较长时间了。
+The system detected that the Live Avatar has been idle for a significant period.
 
-### 2️⃣  **闲置提醒文本消息**（开发者服务发）
-```plain
-{ 
+### 2️⃣ Idle Prompt Text Message (Sent by the Developer Service)
+
+```json
+{
   "event": "system.prompt",
   "data": {
     "text": "Are you still there?"
@@ -392,40 +531,45 @@ state 所有的值（后续可能扩展）
 
 ---
 
-数字人服务收到这个消息后会使用配置好的TTS驱动数字人说指定的内容。
+Upon receiving this message, the Live Avatar Service will use the configured TTS engine to drive the Live Avatar to speak the specified content.
 
-prompt文本不参与用户闲置累计计时。
+The prompt text does not count toward the accumulated user idle time.
 
-### 3️⃣ **闲置提醒开始语音消息**（开发者服务发）
-```plain
+### 3️⃣ Idle Reminder Start Message (Sent by the Developer Service)
+
+```json
 {
   "event": "response.audio.promptStart"
 }
 ```
 
-### 4️⃣ **闲置提醒结束语音消息（开发者服务发）**
-```plain
+### 4️⃣ Idle Reminder End Message (Sent by the Developer Service)
+
+```json
 {
   "event": "response.audio.promptFinish"
 }
 ```
 
-发送闲置提醒开始消息后开发者服务推送对应的提醒语音，prompt音频推送完毕再发送闲置提醒结束消息。
+After sending the Idle Reminder Start message, the Developer Service pushes the corresponding reminder audio. The Idle Reminder End message is sent only after the prompt audio transmission is complete.
 
-prompt音频不参与用户闲置累计计时。
-
-## 场景四：LiveKit DataChannel（低延迟路径）
-👉 核心原则：
-
-**除了ping/pong请求不再需要，其它协议格式完全一样，只是走 RTC**
+Prompt audio does not count toward the accumulated user idle time.
 
 ---
 
-## 场景五：异常处理（optional）
+## Scenario 4: LiveKit DataChannel (Low-Latency Path)
+
+👉 Core Principle:
+
+**Aside from the fact that ping/pong requests are no longer required, the protocol format remains entirely identical; the only difference is that traffic is routed via RTC.**
+
 ---
 
-### 错误（开发者服务发送）
-```plain
+## Scenario 5: Error Handling (Optional)
+
+### Error (Sent by Developer Service)
+
+```json
 {
   "event": "error",
   "requestId": "req_1",
@@ -438,84 +582,95 @@ prompt音频不参与用户闲置累计计时。
 
 ---
 
-### 流取消（开发者服务发送）
-```plain
+### Stream Cancellation (Sent by Developer Service)
+
+```json
 {
   "event": "response.cancel",
   "responseId": "response_1"
 }
 ```
 
+---
 
+# Audio Protocol Design (WebSocket Channel Only)
 
-# 音频协议设计（仅websocket通道）
-音频是二进制数据，每一个音频包都会封装成以下数据结构
+Audio consists of binary data; each audio packet is encapsulated within the following data structure.
 
-## 📦 数据结构
-```plain
+## 📦 Data Structure
+
+```
 | Header (9 bytes) | Audio Payload |
 ```
 
 ---
 
-## 🧠 Header 位定义
-总共8*9=72位
+## 🧠 Header Bit Definitions
 
-按照顺序，每一个字段占的位数。
+Total: 8 × 9 = 72 bits
 
-| 字段 | 位数 | 位偏移（高→低） | 范围/取值 | 说明 |
+Listed in sequential order, indicating the number of bits occupied by each field.
+
+| Field | Bits | Bit Offset (High → Low) | Range / Values | Description |
 | --- | --- | --- | --- | --- |
-| **T (Type)** | 2 | 70–71 | `01` | 固定为音频帧 |
+| **T (Type)** | 2 | 70–71 | `01` | Fixed as Audio Frame |
 | **C (Channel)** | 1 | 69 | 0 / 1 | 0=Mono, 1=Stereo |
-| **K (Key)** | 1 | 68 | 0 / 1 | 关键帧（首帧 / Opus重同步） |
-| **S (Seq)** | 12 | 56–67 | 0–4095 | 序号（循环） |
-| **TS (Timestamp)** | 20 | 36–55 | 0–1,048,575 | 时间戳（ms，循环）） |
+| **K (Key)** | 1 | 68 | 0 / 1 | Key Frame (First Frame / Opus Resync) |
+| **S (Seq)** | 12 | 56–67 | 0–4095 | Sequence Number (Wrapping) |
+| **TS (Timestamp)** | 20 | 36–55 | 0–1,048,575 | Timestamp (ms, Wrapping) |
 | **SR (SampleRate)** | 2 | 34–35 | 00/01/10 | 00=16kHz, 01=24kHz, 10=48kHz |
-| **F (Samples)** | 12 | 22–33 | 0–4095 | 每帧采样数（如 24k/40ms=960） |
+| **F (Samples)** | 12 | 22–33 | 0–4095 | Samples per frame (e.g., 24k/40ms = 960) |
 | **Codec** | 2 | 20–21 | 00/01 | 00=PCM, 01=Opus |
-| **R (Reserved)** | 4 | 16–19 | 0000 | 保留位 |
-| **L (Length)** | 16 | 0–15 | 0–65535 | Payload 字节长度 |
+| **R (Reserved)** | 4 | 16–19 | 0000 | Reserved Bits |
+| **L (Length)** | 16 | 0–15 | 0–65535 | Payload Length (Bytes) |
 
+Both Seq and TS are incremental; however, due to their limited bit-widths, they must support wrapping.
 
-seq 和 TS都是递增的，但是它们位数有限，因此需要支持循环。
+### Wrapping Rules
 
-### wrap 规则
-TS 和 Seq 均为循环计数器，接收端必须使用模运算进行比较，禁止直接使用大小判断。
+Both TS and Seq function as wrapping counters. The receiving end **must** use modular arithmetic for comparisons; direct comparison based on magnitude is prohibited.
 
-###  jitter buffer 必须基于 TS（不是 Seq）
-排序优先级：  
-1. TS（主排序）  
-2. Seq（辅助去重）
+### The Jitter Buffer Must Be Based on TS (Not Seq)
 
-###  丢包/乱序窗口
-最大乱序窗口 ≈ 200~500ms
+Sorting priority:
+1. TS (Primary sorting key)
+2. Seq (Secondary key for duplicate removal)
+
+### Packet Loss / Out-of-Order Window
+
+Maximum out-of-order window ≈ 200–500 ms
 
 ## 🧠 Audio Payload
- 真正的音频二进制数据，里面是pcm/opus格式的二进制数据。
 
-无论数字人服务发送给开发者的音频数据还是开发者发给数字人服务的音频数据都必须遵循这个格式。
+This contains the actual raw audio binary data, specifically formatted as PCM or Opus binary data.
 
-# 图片协议设计(仅websocket通道)
-图片是二进制数据，每一张图片包都会封装成以下数据结构（仅用于多模态图片流输入场景）
+Whether the audio data is sent from the Live Avatar Service to a developer, or from a developer to the Live Avatar Service, it must strictly adhere to this format.
 
-## 📦 数据结构
-```plain
-| Header (12 bytes) | Audio Payload |
+---
+
+# Image Protocol Design (WebSocket Channel Only)
+
+Image data is transmitted as binary data; each image packet is encapsulated within the following data structure (this applies exclusively to scenarios involving multimodal image stream input).
+
+## 📦 Data Structure
+
+```
+| Header (12 bytes) | Image Payload |
 ```
 
-## 🧠 Header 位定义
-总共8*12=96位
+## 🧠 Header Bit Definitions
 
-按照顺序，每一个字段占的位数。
+Total: 8 × 12 = 96 bits
 
-| 字段 | 位数 | 位偏移（高→低） | 范围/取值 | 说明 |
+The following lists the bit allocation for each field, presented in sequential order.
+
+| Field | Bits | Bit Offset (High → Low) | Range / Values | Description |
 | --- | --- | --- | --- | --- |
-| **T (Type)** | 2 | 94–95 | `10` | 固定为图片帧标识 |
-| **V (Version)** | 2 | 92–93 | `00` | 协议版本（预留扩展） |
+| **T (Type)** | 2 | 94–95 | `10` | Fixed identifier for image frames |
+| **V (Version)** | 2 | 92–93 | `00` | Protocol version (reserved for extensions) |
 | **F (Format)** | 4 | 88–91 | 0–4 | 0=JPG, 1=PNG, 2=WebP, 3=GIF, 4=AVIF |
-| **Q (Quality)** | 8 | 80–87 | 0–255 | 图片质量（编码质量/压缩等级） |
-| **ID (ImageId)** | 16 | 64–79 | 0–65535 | 图片唯一标识（用于分片/重组） |
-| **W (Width)** | 16 | 48–63 | 0–65535 | 图片宽度（像素） |
-| **H (Height)** | 16 | 32–47 | 0–65535 | 图片高度（像素） |
-| **L (Length)** | 32 | 0–31 | 0–4,294,967,295 | Payload 字节长度 |
-
+| **Q (Quality)** | 8 | 80–87 | 0–255 | Image quality (encoding quality / compression level) |
+| **ID (ImageId)** | 16 | 64–79 | 0–65535 | Unique image identifier (used for fragmentation / reassembly) |
+| **W (Width)** | 16 | 48–63 | 0–65535 | Image width (pixels) |
+| **H (Height)** | 16 | 32–47 | 0–65535 | Image height (pixels) |
+| **L (Length)** | 32 | 0–31 | 0–4,294,967,295 | Payload length (bytes) |
