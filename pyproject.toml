@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "liveavatar-channel-sdk"
 version = "0.1.0"
 description = "Live Avatar Channel SDK - Python WebSocket protocol for live avatar communication"
-readme = "README.md"
+readme = {file = "README.md", content-type = "text/markdown"}
 requires-python = ">=3.9"
 license = {text = "MIT"}
 authors = [
@@ -20,8 +20,8 @@ dependencies = [
 
 [project.optional-dependencies]
 server = [
-    "fastapi",
-    "uvicorn[standard]",
+    "fastapi>=0.100",
+    "uvicorn[standard]>=0.20",
 ]
 dev = [
     "pytest",
