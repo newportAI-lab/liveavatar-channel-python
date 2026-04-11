@@ -23,15 +23,15 @@ class EventType(str, Enum):
     RESPONSE_DONE = "response.done"
     RESPONSE_AUDIO_START = "response.audio.start"
     RESPONSE_AUDIO_FINISH = "response.audio.finish"
-    RESPONSE_AUDIO_PROMPT_START = "response.audio.prompt_start"
-    RESPONSE_AUDIO_PROMPT_FINISH = "response.audio.prompt_finish"
+    RESPONSE_AUDIO_PROMPT_START = "response.audio.promptStart"
+    RESPONSE_AUDIO_PROMPT_FINISH = "response.audio.promptFinish"
     RESPONSE_CANCEL = "response.cancel"
 
     # Control events
     CONTROL_INTERRUPT = "control.interrupt"
 
     # System events
-    SYSTEM_IDLE_TRIGGER = "system.idle_trigger"
+    SYSTEM_IDLE_TRIGGER = "system.idleTrigger"
     SYSTEM_PROMPT = "system.prompt"
 
     # Error events

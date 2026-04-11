@@ -26,12 +26,10 @@ from typing import Optional
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 from liveavatar_channel_sdk.avatar_channel_listener_adapter import AvatarChannelListenerAdapter
-from liveavatar_channel_sdk.avatar_websocket_client import AvatarWebSocketClient
 from liveavatar_channel_sdk.audio_frame import AudioFrame
 from liveavatar_channel_sdk.image_frame import ImageFrame
 from liveavatar_channel_sdk.message_builder import MessageBuilder
 from liveavatar_channel_sdk.session_manager import SessionManager
-from liveavatar_channel_sdk.session_state import SessionState
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -125,29 +123,30 @@ async def avatar_ws(ws: WebSocket) -> None:
                 logger.warning("Non-JSON message received")
                 continue
 
-            event_type = msg.get("type")
+            event_type = msg.get("event")
+            data = msg.get("data", {})
 
             # Dispatch to listener
             if event_type == "session.init":
-                session_id = msg.get("sessionId", "")
+                session_id = data.get("sessionId", "")
                 await listener.on_session_init(
                     session_id=session_id,
-                    user_id=msg.get("userId", ""),
+                    user_id=data.get("userId", ""),
                 )
             elif event_type == "input.text":
                 await listener.on_input_text(
                     request_id=msg.get("requestId", ""),
-                    text=msg.get("text", ""),
+                    text=data.get("text", ""),
                 )
             elif event_type == "session.closing":
-                await listener.on_session_closing(reason=msg.get("reason"))
+                await listener.on_session_closing(reason=data.get("reason"))
             elif event_type == "control.interrupt":
                 await listener.on_control_interrupt(request_id=msg.get("requestId"))
             elif event_type == "error":
                 await listener.on_error(
                     request_id=msg.get("requestId"),
-                    code=msg.get("code", ""),
-                    message=msg.get("message", ""),
+                    code=data.get("code", ""),
+                    message=data.get("message", ""),
                 )
             else:
                 logger.debug("Unhandled event type: %s", event_type)

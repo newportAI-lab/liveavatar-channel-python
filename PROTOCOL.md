@@ -19,7 +19,6 @@ Since the Live Avatar system also supports text communication via LiveKit Data C
 We use the term "event" to designate message types. To prevent confusion as the number of message types grows, a specific set of conventions has been established.
 
 ### Three-Part Semantic Structure
-
 ```
 <domain>.<action>[.<stage>]
 ```
@@ -190,7 +189,6 @@ sequenceDiagram
 ### 1️⃣ Establishing Connection
 
 #### Client (Live Avatar Service) → Server (Developer Service)
-
 ```json
 {
   "event": "session.init",
@@ -204,7 +202,6 @@ sequenceDiagram
 ---
 
 #### (Developer Service) → Client (Live Avatar Service)
-
 ```json
 {
   "event": "session.ready"
@@ -287,7 +284,6 @@ Sent by the Developer Service **before** the first `response.chunk`. Use this to
 ---
 
 #### chunk (Text)
-
 ```json
 {
   "event": "response.chunk",
@@ -304,7 +300,6 @@ Sent by the Developer Service **before** the first `response.chunk`. Use this to
 ---
 
 #### done (Text)
-
 ```json
 {
   "event": "response.done",
@@ -366,7 +361,21 @@ The Live Avatar Service is solely responsible for executing the interrupt action
 
 Providing `requestId` helps ensure that a specific, designated conversation is interrupted precisely, preventing erroneous interruptions caused by network instability. This field is optional.
 
-The following sequence diagram illustrates the interrupt execution flow:
+The following sequence diagram illustrates the interrupt execution flow.
+
+> **Interrupt Ownership Rule — tied to ASR ownership:**
+> The party that provides ASR is the only one authorized to issue `control.interrupt`.
+>
+> | ASR Mode | Who may send `control.interrupt` | Platform auto-interrupt |
+> |---|---|---|
+> | Platform ASR (Scenario 2A) | Developer **and** Platform | Allowed — platform may auto-interrupt based on its own VAD policy |
+> | Developer ASR / Omni (Scenario 2B) | Developer **only** | **Forbidden** — platform MUST NOT send `control.interrupt` |
+>
+> **Rationale:** In Scenario 2B the developer owns VAD, so only the developer knows when speech boundaries occur. A platform-initiated interrupt in this mode would break the developer's ASR pipeline.
+>
+> **Note:** Voice interrupt handling differs by ASR mode:
+> - **Platform ASR** — The platform detects VAD and sends `input.voice.start` to the developer, who may then issue `control.interrupt`. The platform may also auto-interrupt based on its own VAD policy.
+> - **Developer ASR / Omni** — The developer receives raw audio Binary Frames (Scenario 2B), runs VAD internally, and is solely responsible for issuing `control.interrupt`. This is the path illustrated in the diagram below.
 
 ```mermaid
 sequenceDiagram
@@ -376,7 +385,7 @@ sequenceDiagram
     participant Task as Response Task (LLM/TTS)
     participant Avatar as Live Avatar Service (Platform/RTC)
 
-    Note over User, Avatar: Scenario 1: Avatar is speaking, user sends a text message
+    Note over User, Avatar: Case 1: Avatar is speaking, user sends a text message
     User->>AppServer: 1. Send text message (input.text)
 
     rect rgb(240, 248, 255)
@@ -389,10 +398,10 @@ sequenceDiagram
     Task-->>Avatar: 5. Push new reply text/audio
     Avatar-->>User: 6. Render new reply
 
-    Note over User, Avatar: Scenario 2: Avatar is speaking, user starts speaking (voice interrupt)
-    User->>AppServer: 7. Send audio stream (Binary Frame)
+    Note over User, Avatar: Case 2: Avatar is speaking, user starts speaking (Developer ASR / Omni path)
+    Avatar->>AppServer: 7. Binary Frames (continuous raw audio forwarded by platform)
 
-    AppServer->>AppServer: 8. asrService.detectVoiceActivity (VAD triggered)
+    AppServer->>AppServer: 8. asrService.detectVoiceActivity (VAD triggered internally)
 
     rect rgb(255, 240, 245)
         Note right of AppServer: [Voice Real-time Interrupt]
@@ -421,12 +430,20 @@ This message is typically sent proactively by the system just before a timeout i
 
 ---
 
-## Scenario 2: ASR + Real-time Voice (Sent by the Developer Service)
+## Scenario 2: Real-time Voice Input
 
-### ASR Recognition (The party providing ASR is responsible for sending these messages)
+> **Design Principle — ASR Ownership:**
+> Whoever provides ASR is responsible for producing ASR recognition results and VAD judgments — and for sending the corresponding events.
+> - **Platform ASR** → Platform runs ASR + VAD and sends `input.asr.*` / `input.voice.*` **to** the Developer Service.
+> - **Developer ASR / Omni** → Platform forwards raw audio Binary Frames to the Developer Service; the developer runs ASR + VAD and sends `input.asr.*` / `input.voice.*` **back to** the platform (same events, reversed direction). This keeps the platform state machine in sync and enables conversation logging.
 
-#### User Speech-to-Text Recognition (Streaming / Partial)
+---
 
+### Scenario 2A: Platform ASR
+
+The following events are sent by the **Live Avatar Service (Platform) → Developer Service**.
+
+#### ASR Recognition — Streaming Partial Result
 ```json
 {
   "event": "input.asr.partial",
@@ -441,8 +458,7 @@ This message is typically sent proactively by the system just before a timeout i
 
 ---
 
-#### User Speech-to-Text Recognition (Final Result)
-
+#### ASR Recognition — Final Result
 ```json
 {
   "event": "input.asr.final",
@@ -455,10 +471,7 @@ This message is typically sent proactively by the system just before a timeout i
 
 ---
 
-### Voice Input Start / End Detection (The party providing ASR is responsible for sending these messages)
-
-#### Voice Input Start Detected
-
+#### Voice Activity Detection — Speech Start
 ```json
 {
   "event": "input.voice.start",
@@ -466,8 +479,7 @@ This message is typically sent proactively by the system just before a timeout i
 }
 ```
 
-#### Voice Input End Detected
-
+#### Voice Activity Detection — Speech End
 ```json
 {
   "event": "input.voice.finish",
@@ -475,16 +487,38 @@ This message is typically sent proactively by the system just before a timeout i
 }
 ```
 
-It is acceptable to send only `input.asr.final`; `input.asr.partial` is an optional message.
+`input.asr.partial` is optional; sending only `input.asr.final` is acceptable.
 
-👉 The subsequent workflow is identical to that of text input.
+👉 The subsequent response workflow is identical to that of text input (Scenario 1).
+
+---
+
+### Scenario 2B: Developer ASR / Omni
+
+When the avatar is configured for developer-provided ASR (including Omni multimodal models), the **Live Avatar Service (Platform) → Developer Service** continuously forwards the user's audio as a raw Binary Frame stream throughout the session. There are no start/finish signaling events — the platform performs no VAD and imposes no segmentation.
+
+#### Continuous Raw Audio Stream
+
+Binary Frames are forwarded using the same binary format defined in the [Audio Protocol](#audio-protocol-design-websocket-channel-only) section.
+
+> The raw audio Binary Frame format is identical to the `response.audio.*` Binary Frame format used for developer-managed TTS output — only the transmission direction is reversed.
+
+The developer runs VAD and ASR internally, then sends the **same `input.voice.*` and `input.asr.*` events back to the platform** (direction reversed compared to Scenario 2A):
+
+| Event | Direction | Purpose |
+|---|---|---|
+| `input.voice.start` | **Developer → Platform** | Notify platform that user started speaking; triggers LISTENING state |
+| `input.asr.partial` | **Developer → Platform** | Stream partial recognition results for real-time display |
+| `input.voice.finish` | **Developer → Platform** | Notify platform that user stopped speaking |
+| `input.asr.final` | **Developer → Platform** | Send final recognition result; platform advances state machine |
+
+After sending `input.asr.final`, the developer processes the recognized text and responds using the standard response events (Scenario 1, Section 4).
 
 ---
 
 ### Speech Output Start / End Detection (The party providing TTS is responsible for sending these messages)
 
 #### Speech Output Started
-
 ```json
 {
   "event": "response.audio.start",
@@ -494,7 +528,6 @@ It is acceptable to send only `input.asr.final`; `input.asr.partial` is an optio
 ```
 
 #### Speech Output Finished
-
 ```json
 {
   "event": "response.audio.finish",
@@ -644,7 +677,6 @@ Both TS and Seq function as wrapping counters. The receiving end **must** use mo
 ### The Jitter Buffer Must Be Based on TS (Not Seq)
 
 Sorting priority:
-
 1. TS (Primary sorting key)
 2. Seq (Secondary key for duplicate removal)
 

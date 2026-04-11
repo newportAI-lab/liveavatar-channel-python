@@ -370,6 +370,20 @@ seq = session 内递增。所有 state 值（后续可能扩展）：
 
 打断时传入 requestId 可以帮助精准打断指定的对话，避免因为网络抖动导致误打断，也可以不填。
 
+> **打断归属规则 — 与 ASR 归属绑定：**
+> 谁提供 ASR，谁才有权发送 `control.interrupt`。
+>
+> | ASR 模式 | 谁可以发送 `control.interrupt` | 平台是否可自动打断 |
+> |---|---|---|
+> | 平台 ASR（场景 2A）| 开发者**和**平台 | 允许 — 平台可根据自身 VAD 策略自动打断 |
+> | 开发者 ASR / Omni（场景 2B）| **仅**开发者 | **禁止** — 平台绝不能发送 `control.interrupt` |
+>
+> **原因：** 在场景 2B 中，开发者自己掌管 VAD，只有开发者知道语音边界。平台在此模式下发起打断会破坏开发者的 ASR 流水线。
+>
+> **说明：** 语音打断的处理方式因 ASR 模式而异：
+> - **平台 ASR** — 平台检测 VAD 并向开发者发送 `input.voice.start`，开发者随后可发出 `control.interrupt`；平台也可根据自身 VAD 策略自动打断。
+> - **开发者 ASR / Omni** — 开发者接收原始音频 Binary Frame（场景 2B），在内部执行 VAD，并独立负责发送 `control.interrupt`。下方时序图展示的正是该路径。
+
 为了方便理解，我们提供打断执行的时序图：
 
 ```mermaid
@@ -393,15 +407,15 @@ sequenceDiagram
     Task-->>Avatar: 5. 推送新回复文本/音频
     Avatar-->>User: 6. 渲染新回复画面
 
-    Note over User, Avatar: 场景 2：数字人正在说话，用户开口说话 (语音打断)
-    User->>AppServer: 7. 发送音频流 (Binary Frame)
+    Note over User, Avatar: 场景 2：数字人正在说话，用户开口说话（开发者 ASR / Omni 路径）
+    Avatar->>AppServer: 7. Binary Frame（平台持续转发的原始音频）
     
-    AppServer->>AppServer: 8. asrService.detectVoiceActivity (VAD 触发)
+    AppServer->>AppServer: 8. asrService.detectVoiceActivity（内部 VAD 触发）
     
     rect rgb(255, 240, 245)
         Note right of AppServer: 【语音实时打断】
-        AppServer->>Task: 9. cancelCurrentResponse() (确保源头切断)
-        AppServer->>Avatar: 10. control.interrupt (指令下发)
+        AppServer->>Task: 9. cancelCurrentResponse()（从源头切断）
+        AppServer->>Avatar: 10. control.interrupt（指令下发）
     end
 
     AppServer->>AppServer: 11. 继续 ASR 识别 & 业务逻辑处理
@@ -425,11 +439,20 @@ sequenceDiagram
 
 ---
 
-## 场景二：ASR + 实时语音（开发者服务发送）
+## 场景二：实时语音输入
 
-### ASR 识别（ASR 由谁来提供，消息就由谁来发送）
+> **设计原则 — ASR 归属：**
+> 谁提供 ASR，谁就负责产出 ASR 识别结果和 VAD 判断，并发送对应事件。
+> - **平台 ASR** → 平台执行 ASR + VAD，将 `input.asr.*` / `input.voice.*` **发给**开发者服务。
+> - **开发者 ASR / Omni** → 平台将原始音频 Binary Frame 转发给开发者；开发者执行 ASR + VAD，再将 `input.asr.*` / `input.voice.*` **回传给**平台（与场景 2A 方向相反），以保持平台状态机同步并支持对话录制。
 
-#### 用户说话文本识别（流式）
+---
+
+### 场景 2A：平台 ASR
+
+以下事件由**数字人服务（平台）→ 开发者服务**发送。
+
+#### ASR 识别 — 流式中间结果
 
 ```json
 {
@@ -445,7 +468,7 @@ sequenceDiagram
 
 ---
 
-#### 用户说话文本识别（最终结果）
+#### ASR 识别 — 最终结果
 
 ```json
 {
@@ -459,9 +482,7 @@ sequenceDiagram
 
 ---
 
-### 语音输入开始/结束检测（ASR 由谁来提供，消息谁来发送）
-
-#### 检测到语音输入开始
+#### 语音活动检测 — 说话开始
 
 ```json
 {
@@ -470,7 +491,7 @@ sequenceDiagram
 }
 ```
 
-#### 检测到语音输入结束
+#### 语音活动检测 — 说话结束
 
 ```json
 {
@@ -479,9 +500,32 @@ sequenceDiagram
 }
 ```
 
-可以只发 `input.asr.final` 这个 event，`input.asr.partial` 属于 optional 类消息。
+`input.asr.partial` 属于 optional 消息，只发 `input.asr.final` 也可接受。
 
-👉 后续流程同 text
+👉 后续回复流程与文本输入（场景一）相同。
+
+---
+
+### 场景 2B：开发者 ASR / Omni
+
+当数字人配置为开发者提供 ASR（包括 Omni 多模态模型）时，**数字人服务（平台）→ 开发者服务**在整个会话期间持续转发用户的原始音频 Binary Frame 流，没有开始/结束信令事件 — 平台不执行 VAD，也不做任何分段。
+
+#### 持续原始音频流
+
+Binary Frame 使用与[音频协议](#音频协议设计仅-websocket-通道)节相同的二进制格式转发。
+
+> 原始音频 Binary Frame 格式与开发者管理 TTS 输出所用的 `response.audio.*` Binary Frame 格式完全相同，仅传输方向相反。
+
+开发者在内部执行 VAD 和 ASR 后，将**相同的 `input.voice.*` 和 `input.asr.*` 事件回传给平台**（与场景 2A 方向相反）：
+
+| 事件 | 方向 | 用途 |
+|---|---|---|
+| `input.voice.start` | **开发者 → 平台** | 通知平台用户开始说话；触发 LISTENING 状态 |
+| `input.asr.partial` | **开发者 → 平台** | 流式传输中间识别结果，供实时展示 |
+| `input.voice.finish` | **开发者 → 平台** | 通知平台用户停止说话 |
+| `input.asr.final` | **开发者 → 平台** | 发送最终识别结果；平台推进状态机 |
+
+发送 `input.asr.final` 后，开发者处理识别到的文本，并使用标准回复事件（场景一，第 4️⃣ 节）进行响应。
 
 ---
 

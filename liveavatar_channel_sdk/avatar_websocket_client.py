@@ -237,21 +237,22 @@ class AvatarWebSocketClient:
             logger.warning("Received non-JSON text message: %.120s", raw)
             return
 
-        event_type = msg.get("type")
+        event_type = msg.get("event")
+        data = msg.get("data", {})
         listener = self._listener
 
         try:
             if event_type == EventType.SESSION_INIT:
                 await listener.on_session_init(
-                    session_id=msg["sessionId"],
-                    user_id=msg["userId"],
+                    session_id=data["sessionId"],
+                    user_id=data["userId"],
                 )
 
             elif event_type == EventType.SESSION_READY:
                 await listener.on_session_ready()
 
             elif event_type == EventType.SESSION_STATE:
-                state = SessionState(msg["state"])
+                state = SessionState(data["state"])
                 await listener.on_session_state(
                     state=state,
                     seq=msg["seq"],
@@ -259,25 +260,25 @@ class AvatarWebSocketClient:
                 )
 
             elif event_type == EventType.SESSION_CLOSING:
-                await listener.on_session_closing(reason=msg.get("reason"))
+                await listener.on_session_closing(reason=data.get("reason"))
 
             elif event_type == EventType.INPUT_TEXT:
                 await listener.on_input_text(
                     request_id=msg["requestId"],
-                    text=msg["text"],
+                    text=data["text"],
                 )
 
             elif event_type == EventType.INPUT_ASR_PARTIAL:
                 await listener.on_asr_partial(
                     request_id=msg["requestId"],
-                    text=msg["text"],
+                    text=data["text"],
                     seq=msg["seq"],
                 )
 
             elif event_type == EventType.INPUT_ASR_FINAL:
                 await listener.on_asr_final(
                     request_id=msg["requestId"],
-                    text=msg["text"],
+                    text=data["text"],
                 )
 
             elif event_type == EventType.INPUT_VOICE_START:
@@ -290,7 +291,7 @@ class AvatarWebSocketClient:
                 await listener.on_response_start(
                     request_id=msg["requestId"],
                     response_id=msg["responseId"],
-                    audio_config=msg.get("audioConfig"),
+                    audio_config=data.get("audioConfig"),
                 )
 
             elif event_type == EventType.RESPONSE_CHUNK:
@@ -298,7 +299,7 @@ class AvatarWebSocketClient:
                     request_id=msg["requestId"],
                     response_id=msg["responseId"],
                     seq=msg["seq"],
-                    text=msg["text"],
+                    text=data["text"],
                 )
 
             elif event_type == EventType.RESPONSE_DONE:
@@ -334,18 +335,18 @@ class AvatarWebSocketClient:
 
             elif event_type == EventType.SYSTEM_IDLE_TRIGGER:
                 await listener.on_idle_trigger(
-                    reason=msg["reason"],
-                    idle_time_ms=msg["idleTimeMs"],
+                    reason=data["reason"],
+                    idle_time_ms=data["idleTimeMs"],
                 )
 
             elif event_type == EventType.SYSTEM_PROMPT:
-                await listener.on_system_prompt(text=msg["text"])
+                await listener.on_system_prompt(text=data["text"])
 
             elif event_type == EventType.ERROR:
                 await listener.on_error(
                     request_id=msg.get("requestId"),
-                    code=msg["code"],
-                    message=msg["message"],
+                    code=data["code"],
+                    message=data["message"],
                 )
 
             else:

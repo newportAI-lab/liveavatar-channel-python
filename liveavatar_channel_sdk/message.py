@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 
@@ -8,14 +8,14 @@ from typing import Optional
 class BaseMessage:
     """Base message with event type."""
 
-    type: str
+    event: str  # EventType string value
 
 
 @dataclass
 class SessionInitMessage:
     """Session initialization message sent by avatar service."""
 
-    type: str  # "session.init"
+    event: str  # EventType.SESSION_INIT
     session_id: str
     user_id: str
 
@@ -24,7 +24,7 @@ class SessionInitMessage:
 class SessionReadyMessage:
     """Session ready acknowledgment sent by developer."""
 
-    type: str  # "session.ready"
+    event: str  # "session.ready"
     session_id: str
 
 
@@ -32,7 +32,7 @@ class SessionReadyMessage:
 class SessionStateMessage:
     """Session state update sent by avatar service."""
 
-    type: str  # "session.state"
+    event: str  # "session.state"
     state: str  # SessionState value
     seq: int
     timestamp: int
@@ -42,7 +42,7 @@ class SessionStateMessage:
 class SessionClosingMessage:
     """Session closing notification sent by avatar service."""
 
-    type: str  # "session.closing"
+    event: str  # "session.closing"
     reason: Optional[str] = None
 
 
@@ -50,7 +50,7 @@ class SessionClosingMessage:
 class InputTextMessage:
     """User text input message sent by avatar service."""
 
-    type: str  # "input.text"
+    event: str  # "input.text"
     request_id: str
     text: str
 
@@ -59,7 +59,7 @@ class InputTextMessage:
 class AsrMessage:
     """Automatic speech recognition result message."""
 
-    type: str  # "input.asr.partial" or "input.asr.final"
+    event: str  # "input.asr.partial" or "input.asr.final"
     request_id: str
     text: str
     final: bool = False
@@ -70,7 +70,7 @@ class AsrMessage:
 class ResponseChunkMessage:
     """Streaming response text chunk sent by developer."""
 
-    type: str  # "response.chunk"
+    event: str  # "response.chunk"
     request_id: str
     response_id: str
     seq: int
@@ -82,7 +82,7 @@ class ResponseChunkMessage:
 class ResponseDoneMessage:
     """Response completion message sent by developer."""
 
-    type: str  # "response.done"
+    event: str  # "response.done"
     request_id: str
     response_id: str
 
@@ -91,7 +91,7 @@ class ResponseDoneMessage:
 class ResponseCancelMessage:
     """Response cancellation message sent by developer."""
 
-    type: str  # "response.cancel"
+    event: str  # "response.cancel"
     response_id: str
 
 
@@ -99,7 +99,7 @@ class ResponseCancelMessage:
 class ControlInterruptMessage:
     """Interrupt control message sent by developer."""
 
-    type: str  # "control.interrupt"
+    event: str  # "control.interrupt"
     request_id: Optional[str] = None
 
 
@@ -107,7 +107,7 @@ class ControlInterruptMessage:
 class IdleTriggerMessage:
     """Idle trigger notification sent by avatar service."""
 
-    type: str  # "system.idle_trigger"
+    event: str  # EventType.SYSTEM_IDLE_TRIGGER
     reason: str
     idle_time_ms: int
 
@@ -116,7 +116,7 @@ class IdleTriggerMessage:
 class SystemPromptMessage:
     """System prompt message sent by developer for idle wakeup."""
 
-    type: str  # "system.prompt"
+    event: str  # "system.prompt"
     text: str
 
 
@@ -124,7 +124,7 @@ class SystemPromptMessage:
 class ErrorMessage:
     """Error message sent by either party."""
 
-    type: str  # "error"
+    event: str  # "error"
     code: str
     message: str
     request_id: Optional[str] = None

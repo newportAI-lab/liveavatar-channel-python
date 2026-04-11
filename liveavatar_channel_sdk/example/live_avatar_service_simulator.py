@@ -17,7 +17,6 @@ Run with:
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import uuid
 from typing import Optional
@@ -26,8 +25,6 @@ from liveavatar_channel_sdk.avatar_channel_listener_adapter import AvatarChannel
 from liveavatar_channel_sdk.avatar_websocket_client import AvatarWebSocketClient
 from liveavatar_channel_sdk.message_builder import MessageBuilder
 from liveavatar_channel_sdk.session_state import SessionState
-from liveavatar_channel_sdk.audio_frame import AudioFrame
-from liveavatar_channel_sdk.image_frame import ImageFrame
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -66,7 +63,7 @@ class SimulatorListener(AvatarChannelListenerAdapter):
         self.done_event.set()
 
     async def on_idle_trigger(self, reason: str, idle_time_ms: int) -> None:
-        logger.info("← system.idle_trigger  reason=%s  idle_time_ms=%d", reason, idle_time_ms)
+        logger.info("← system.idleTrigger  reason=%s  idle_time_ms=%d", reason, idle_time_ms)
 
     async def on_error(self, request_id: Optional[str], code: str, message: str) -> None:
         logger.error("← error  code=%s  message=%s", code, message)
