@@ -185,7 +185,7 @@ Examples: `session.init`, `input.text`, `response.chunk`, `control.interrupt`
 | `response.chunk` | developer → avatar | Streaming text chunk (with `seq`) |
 | `response.done` | developer → avatar | End of streaming response |
 | `control.interrupt` | developer → avatar | Interrupt current playback |
-| `system.idle_trigger` | avatar → developer | Avatar has been idle |
+| `system.idleTrigger` | avatar → developer | Avatar has been idle |
 
 For the full protocol reference see [`PROTOCOL.md`](PROTOCOL.md).
 

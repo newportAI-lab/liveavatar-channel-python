@@ -86,27 +86,24 @@ sequenceDiagram
     participant RTC as RTC Room (SFU)
     participant Avatar as Avatar Engine
 
-    %% 1. Auth & Initialization
-    AppServer->>Platform: /auth/getAuthToken (API Key)
-    Platform->>AppServer: Return session_token
-    AppServer->>User: Return session_token
-
-    User->>Platform: /session/start
+    %% 1. Session Start (server-side, API Key auth)
+    User->>AppServer: Request to start session
+    AppServer->>Platform: /session/start (API Key)
     Platform->>Avatar: Start avatar
     Avatar->>RTC: Join room
     Avatar->>Platform: Start complete
-    Platform->>User: Return clientRtcToken + sessionId
+    Platform->>AppServer: { sessionId, clientRtcToken, agentWsUrl }
+    AppServer->>User: { sessionId, clientRtcToken }
 
     %% Key difference: Inbound mode connection initiation
     rect rgb(255, 240, 220)
     Note over AppServer, Platform: [Inbound Key Difference]
-    User->>AppServer: 5a. Notify developer backend (with sessionId)
-    AppServer-->>Platform: 5b. Establish WebSocket connection (as Client)
-    Note right of AppServer: Developer side needs no public IP<br/>Only needs to verify platform certificate
+    AppServer-->>Platform: Establish WebSocket connection via agentWsUrl
+    Note right of AppServer: agentWsUrl embeds a short-lived agentToken<br/>(single-use, bound to sessionId + appId)<br/>agentWsUrl is never forwarded to the frontend<br/>No session_token needed — AppServer uses API Key directly<br/>Developer side needs no public IP
     end
 
     %% 2. RTC link establishment
-    User->>RTC: Join room
+    User->>RTC: Join room (clientRtcToken)
     User-->>RTC: Publish text/audio stream
 
     %% 3. Core business loop
@@ -188,7 +185,10 @@ sequenceDiagram
 
 ### 1️⃣ Establishing Connection
 
-#### Client (Live Avatar Service) → Server (Developer Service)
+#### Live Avatar Service → Developer Backend
+
+> The Live Avatar Service **always** sends `session.init` first, regardless of whether Inbound or Outbound mode is used. Developers do not need to handle any difference in direction between the two modes.
+
 ```json
 {
   "event": "session.init",
@@ -201,7 +201,7 @@ sequenceDiagram
 
 ---
 
-#### (Developer Service) → Client (Live Avatar Service)
+#### Developer Backend → Live Avatar Service
 ```json
 {
   "event": "session.ready"

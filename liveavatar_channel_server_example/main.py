@@ -60,7 +60,7 @@ class EchoListener(AvatarChannelListenerAdapter):
         self._session_id = session_id
         logger.info("[%s] session.init  user=%s", session_id, user_id)
         await session_manager.add_session(session_id, self._ws)
-        await self._send(MessageBuilder.session_ready(session_id))
+        await self._send(MessageBuilder.session_ready())
 
     async def on_session_closing(self, reason: Optional[str]) -> None:
         logger.info("[%s] session.closing  reason=%s", self._session_id, reason)

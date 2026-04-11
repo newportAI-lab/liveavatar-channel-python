@@ -28,10 +28,10 @@ class TestMessageBuilderSessions:
         assert len(msg) == 3
 
     def test_session_ready(self):
-        msg = MessageBuilder.session_ready("sess-123")
-        assert msg["type"] == EventType.SESSION_READY
-        assert msg["sessionId"] == "sess-123"
-        assert len(msg) == 2
+        msg = MessageBuilder.session_ready()
+        assert msg["event"] == EventType.SESSION_READY
+        assert "sessionId" not in msg
+        assert len(msg) == 1
 
     def test_session_state(self):
         msg = MessageBuilder.session_state("IDLE", 42, 10000)
@@ -223,7 +223,7 @@ class TestMessageBuilderJsonSerializable:
         """Verify that all message types can be serialized to JSON."""
         messages = [
             MessageBuilder.session_init("sess-1", "user-1"),
-            MessageBuilder.session_ready("sess-1"),
+            MessageBuilder.session_ready(),
             MessageBuilder.session_state("IDLE", 0, 0),
             MessageBuilder.input_text("req-1", "hello"),
             MessageBuilder.input_asr_partial("req-1", "hel", 0),

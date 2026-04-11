@@ -185,7 +185,7 @@ pytest -s -v
 | `response.chunk` | 开发者 → 数字人 | 流式文本片段（含 `seq`） |
 | `response.done` | 开发者 → 数字人 | 流式响应结束 |
 | `control.interrupt` | 开发者 → 数字人 | 中断当前播放 |
-| `system.idle_trigger` | 数字人 → 开发者 | 数字人已空闲 |
+| `system.idleTrigger` | 数字人 → 开发者 | 数字人已空闲 |
 
 完整协议参考请查阅 [`PROTOCOL.md`](PROTOCOL.md)。
 

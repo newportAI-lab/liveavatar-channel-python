@@ -123,8 +123,8 @@ class AvatarWebSocketClient:
 
     # Convenience wrappers for common outgoing messages:
 
-    async def send_session_ready(self, session_id: str) -> None:
-        await self.send_json(MessageBuilder.session_ready(session_id))
+    async def send_session_ready(self) -> None:
+        await self.send_json(MessageBuilder.session_ready())
 
     async def send_response_start(
         self,

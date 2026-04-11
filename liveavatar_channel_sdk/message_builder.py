@@ -26,9 +26,9 @@ class MessageBuilder:
         }
 
     @staticmethod
-    def session_ready(session_id: str) -> dict:
+    def session_ready() -> dict:
         """session.ready: Acknowledge session established."""
-        return {"event": EventType.SESSION_READY, "sessionId": session_id}
+        return {"event": EventType.SESSION_READY}
 
     @staticmethod
     def session_state(state: str, seq: int, timestamp: int) -> dict:
