@@ -25,7 +25,6 @@ class SessionReadyMessage:
     """Session ready acknowledgment sent by developer."""
 
     event: str  # "session.ready"
-    session_id: str
 
 
 @dataclass

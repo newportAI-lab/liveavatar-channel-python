@@ -10,7 +10,7 @@ Usage (outbound/inbound are symmetric from the client's perspective — pass any
     client = AvatarWebSocketClient(url, listener)
     await client.enable_auto_reconnect()   # optional
     await client.connect()
-    await client.send_session_ready(session_id)
+    await client.send_session_ready()
     await client.send_response_chunk(request_id, response_id, seq, ts, text)
     await client.disconnect()
 """
