@@ -19,6 +19,7 @@ Since the Live Avatar system also supports text communication via LiveKit Data C
 We use the term "event" to designate message types. To prevent confusion as the number of message types grows, a specific set of conventions has been established.
 
 ### Three-Part Semantic Structure
+
 ```
 <domain>.<action>[.<stage>]
 ```
@@ -86,21 +87,18 @@ sequenceDiagram
     participant RTC as RTC Room (SFU)
     participant Avatar as Avatar Engine
 
-    %% 1. Session Start (server-side, API Key auth)
-    User->>AppServer: Request to start session
+    %% Key difference: entire session establishment is server-side only
+    rect rgb(255, 240, 220)
+    Note over AppServer, Platform: [Inbound Key Difference]
     AppServer->>Platform: /session/start (API Key)
     Platform->>Avatar: Start avatar
     Avatar->>RTC: Join room
     Avatar->>Platform: Start complete
-    Platform->>AppServer: { sessionId, clientRtcToken, agentWsUrl }
-    AppServer->>User: { sessionId, clientRtcToken }
-
-    %% Key difference: Inbound mode connection initiation
-    rect rgb(255, 240, 220)
-    Note over AppServer, Platform: [Inbound Key Difference]
+    Platform->>AppServer: { sessionId, clientRtcToken, agentWsUrl, sfuUrl }
     AppServer-->>Platform: Establish WebSocket connection via agentWsUrl
-    Note right of AppServer: agentWsUrl embeds a short-lived agentToken<br/>(single-use, bound to sessionId + appId)<br/>agentWsUrl is never forwarded to the frontend<br/>No session_token needed — AppServer uses API Key directly<br/>Developer side needs no public IP
+    Note right of AppServer: No session_token or frontend involvement in session setup<br/>AppServer calls /session/start directly with API Key<br/>agentWsUrl returned directly to AppServer (never forwarded to frontend)<br/>AppServer initiates WebSocket connection (developer side is WS client)<br/>Developer side needs no public IP
     end
+    AppServer->>User: { clientRtcToken, sfuUrl }
 
     %% 2. RTC link establishment
     User->>RTC: Join room (clientRtcToken)
@@ -202,6 +200,7 @@ sequenceDiagram
 ---
 
 #### Developer Backend → Live Avatar Service
+
 ```json
 {
   "event": "session.ready"
@@ -284,6 +283,7 @@ Sent by the Developer Service **before** the first `response.chunk`. Use this to
 ---
 
 #### chunk (Text)
+
 ```json
 {
   "event": "response.chunk",
@@ -300,6 +300,7 @@ Sent by the Developer Service **before** the first `response.chunk`. Use this to
 ---
 
 #### done (Text)
+
 ```json
 {
   "event": "response.done",
@@ -374,6 +375,7 @@ The following sequence diagram illustrates the interrupt execution flow.
 > **Rationale:** In Scenario 2B the developer owns VAD, so only the developer knows when speech boundaries occur. A platform-initiated interrupt in this mode would break the developer's ASR pipeline.
 >
 > **Note:** Voice interrupt handling differs by ASR mode:
+>
 > - **Platform ASR** — The platform detects VAD and sends `input.voice.start` to the developer, who may then issue `control.interrupt`. The platform may also auto-interrupt based on its own VAD policy.
 > - **Developer ASR / Omni** — The developer receives raw audio Binary Frames (Scenario 2B), runs VAD internally, and is solely responsible for issuing `control.interrupt`. This is the path illustrated in the diagram below.
 
@@ -434,6 +436,7 @@ This message is typically sent proactively by the system just before a timeout i
 
 > **Design Principle — ASR Ownership:**
 > Whoever provides ASR is responsible for producing ASR recognition results and VAD judgments — and for sending the corresponding events.
+>
 > - **Platform ASR** → Platform runs ASR + VAD and sends `input.asr.*` / `input.voice.*` **to** the Developer Service.
 > - **Developer ASR / Omni** → Platform forwards raw audio Binary Frames to the Developer Service; the developer runs ASR + VAD and sends `input.asr.*` / `input.voice.*` **back to** the platform (same events, reversed direction). This keeps the platform state machine in sync and enables conversation logging.
 
@@ -444,6 +447,7 @@ This message is typically sent proactively by the system just before a timeout i
 The following events are sent by the **Live Avatar Service (Platform) → Developer Service**.
 
 #### ASR Recognition — Streaming Partial Result
+
 ```json
 {
   "event": "input.asr.partial",
@@ -459,6 +463,7 @@ The following events are sent by the **Live Avatar Service (Platform) → Develo
 ---
 
 #### ASR Recognition — Final Result
+
 ```json
 {
   "event": "input.asr.final",
@@ -472,6 +477,7 @@ The following events are sent by the **Live Avatar Service (Platform) → Develo
 ---
 
 #### Voice Activity Detection — Speech Start
+
 ```json
 {
   "event": "input.voice.start",
@@ -480,6 +486,7 @@ The following events are sent by the **Live Avatar Service (Platform) → Develo
 ```
 
 #### Voice Activity Detection — Speech End
+
 ```json
 {
   "event": "input.voice.finish",
@@ -519,6 +526,7 @@ After sending `input.asr.final`, the developer processes the recognized text and
 ### Speech Output Start / End Detection (The party providing TTS is responsible for sending these messages)
 
 #### Speech Output Started
+
 ```json
 {
   "event": "response.audio.start",
@@ -528,6 +536,7 @@ After sending `input.asr.final`, the developer processes the recognized text and
 ```
 
 #### Speech Output Finished
+
 ```json
 {
   "event": "response.audio.finish",
@@ -677,6 +686,7 @@ Both TS and Seq function as wrapping counters. The receiving end **must** use mo
 ### The Jitter Buffer Must Be Based on TS (Not Seq)
 
 Sorting priority:
+
 1. TS (Primary sorting key)
 2. Seq (Secondary key for duplicate removal)
 

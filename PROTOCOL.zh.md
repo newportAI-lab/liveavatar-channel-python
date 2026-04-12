@@ -89,21 +89,19 @@ sequenceDiagram
     participant RTC as RTC房间 (SFU)
     participant Avatar as 数字人引擎
 
-    %% 1. 会话启动（服务端，API Key 鉴权）
-    User->>AppServer: 请求启动会话
+    %% 核心差异高亮：整个会话建立过程全在服务端完成
+    rect rgb(255, 240, 220)
+    Note over AppServer, Platform: 【Inbound 核心差异】
     AppServer->>Platform: /session/start (API Key)
     Platform->>Avatar: 启动数字人
     Avatar->>RTC: 加入房间
     Avatar->>Platform: 启动完成
-    Platform->>AppServer: { sessionId, clientRtcToken, agentWsUrl }
-    AppServer->>User: { sessionId, clientRtcToken }
-
-    %% 核心差异高亮：Inbound 模式下的连接发起
-    rect rgb(255, 240, 220)
-    Note over AppServer, Platform: 【Inbound 核心差异】
+    Platform->>AppServer: { sessionId, clientRtcToken, agentWsUrl, sfuUrl }
     AppServer-->>Platform: 通过 agentWsUrl 建立 WebSocket 连接
-    Note right of AppServer: agentWsUrl 内嵌一次性 agentToken<br/>（单次有效，绑定 sessionId + appId）<br/>agentWsUrl 不得转发给前端<br/>无需 session_token — AppServer 直接使用 API Key<br/>开发者侧无需公网IP
+    Note right of AppServer: 无需 session_token，前端不参与会话建立<br/>AppServer 直接用 API Key 调 /session/start<br/>agentWsUrl 直接返回给 AppServer（不得转发给前端）<br/>AppServer 主动发起 WebSocket 连接（开发者侧为 WS 客户端）<br/>开发者侧无需公网 IP
     end
+    AppServer->>User: { clientRtcToken, sfuUrl }
+
 
     %% 2. RTC 链路建立
     User->>RTC: 加入房间 (clientRtcToken)
@@ -380,6 +378,7 @@ seq = session 内递增。所有 state 值（后续可能扩展）：
 > **原因：** 场景 2B 中，VAD 由开发者掌控，只有开发者知道语音边界的位置。若平台在此模式下主动发出打断，会破坏开发者的 ASR 处理流程。
 >
 > **说明：** 语音打断的触发方因 ASR 模式不同而不同：
+>
 > - **平台 ASR** — 平台检测 VAD 并向开发者发送 `input.voice.start`，开发者可据此发出 `control.interrupt`；平台也可能依据自身 VAD 策略自动打断。
 > - **开发者 ASR / Omni** — 开发者接收原始音频 Binary Frame（场景 2B），在内部执行 VAD，并全权负责发出 `control.interrupt`。下图展示的即为此路径。
 
@@ -440,6 +439,7 @@ sequenceDiagram
 
 > **设计原则 — ASR 归属权：**
 > ASR 由谁提供，ASR 识别结果和 VAD 判定就由谁来负责——对应事件也由谁来发送。
+>
 > - **平台 ASR** → 平台执行 ASR + VAD，将 `input.asr.*` / `input.voice.*` **下发给**开发者服务。
 > - **开发者 ASR / Omni** → 平台持续转发原始音频 Binary Frame；开发者执行 ASR + VAD，再将同样的 `input.asr.*` / `input.voice.*` **回传给**平台（事件相同，方向相反）。这样平台状态机才能正常流转，对话内容才能正常记录和展示。
 
@@ -450,6 +450,7 @@ sequenceDiagram
 以下事件由**数字人服务（平台）→ 开发者服务**发送。
 
 #### ASR 识别 — 流式中间结果
+
 ```json
 {
   "event": "input.asr.partial",
@@ -465,6 +466,7 @@ sequenceDiagram
 ---
 
 #### ASR 识别 — 最终结果
+
 ```json
 {
   "event": "input.asr.final",
@@ -478,6 +480,7 @@ sequenceDiagram
 ---
 
 #### 语音活动检测 — 说话开始
+
 ```json
 {
   "event": "input.voice.start",
@@ -486,6 +489,7 @@ sequenceDiagram
 ```
 
 #### 语音活动检测 — 说话结束
+
 ```json
 {
   "event": "input.voice.finish",
