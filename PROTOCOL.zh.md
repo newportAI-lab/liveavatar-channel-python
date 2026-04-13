@@ -96,15 +96,15 @@ sequenceDiagram
     Platform->>Avatar: 启动数字人
     Avatar->>RTC: 加入房间
     Avatar->>Platform: 启动完成
-    Platform->>AppServer: { sessionId, clientRtcToken, agentWsUrl, sfuUrl }
+    Platform->>AppServer: { sessionId, clientToken, agentWsUrl, sfuUrl }
     AppServer-->>Platform: 通过 agentWsUrl 建立 WebSocket 连接
-    Note right of AppServer: 无需 session_token，前端不参与会话建立<br/>AppServer 直接用 API Key 调 /session/start<br/>agentWsUrl 直接返回给 AppServer（不得转发给前端）<br/>AppServer 主动发起 WebSocket 连接（开发者侧为 WS 客户端）<br/>开发者侧无需公网 IP
+    Note right of AppServer: 无需 sessionToken，前端不参与会话建立<br/>AppServer 直接用 API Key 调 /session/start<br/>agentWsUrl 直接返回给 AppServer（不得转发给前端）<br/>AppServer 主动发起 WebSocket 连接（开发者侧为 WS 客户端）<br/>开发者侧无需公网 IP
     end
-    AppServer->>User: { clientRtcToken, sfuUrl }
+    AppServer->>User: { clientToken, sfuUrl }
 
 
     %% 2. RTC 链路建立
-    User->>RTC: 加入房间 (clientRtcToken)
+    User->>RTC: 加入房间 (clientToken)
     User-->>RTC: 发布文本/音频流
 
     %% 3. 核心业务循环
@@ -138,27 +138,22 @@ sequenceDiagram
     participant RTC as RTC房间 (SFU)
     participant Avatar as 数字人引擎
 
-    %% 1. 鉴权与初始化
-    AppServer->>Platform: /auth/getAuthToken (API Key)
-    Platform->>AppServer: 返回 session_token
-    AppServer->>User: 返回 session_token
-
-    User->>Platform: /session/start
-
-    %% 核心差异高亮：Outbound 模式下的连接发起
+    %% 核心差异高亮：Outbound 模式下后端直接调 /session/start，无需 sessionToken
     rect rgb(220, 245, 220)
-    Note over Platform, AppServer: 【Outbound 核心差异】
-    Platform-->>AppServer: 5. 建立 WebSocket 连接（平台作为 Client）
-    Note left of AppServer: 开发者侧需暴露公网IP/域名<br/>需处理平台握手鉴权
-    end
-
+    Note over AppServer, Platform: 【Outbound 核心差异】
+    AppServer->>Platform: /session/start (API Key)
+    Platform-->>AppServer: 建立 WebSocket 连接（平台作为 Client）
+    Note left of AppServer: 开发者侧需暴露公网IP/域名<br/>需处理平台握手鉴权<br/>后端直接用 API Key 调 /session/start，无需 sessionToken
     Platform->>Avatar: 启动数字人
     Avatar->>RTC: 加入房间
     Avatar->>Platform: 启动完成
-    Platform->>User: 返回 clientRtcToken
+    Platform->>AppServer: { sessionId, clientToken, sfuUrl }
+    end
+
+    AppServer->>User: { clientToken, sfuUrl }
 
     %% 2. RTC 链路建立
-    User->>RTC: 加入房间
+    User->>RTC: 加入房间 (clientToken)
     User-->>RTC: 发布文本/音频流
 
     %% 3. 核心业务循环
@@ -181,6 +176,12 @@ sequenceDiagram
 
 - 如果你的业务对**极低延迟和大规模并发稳定性**有要求，且你有成熟的运维团队能暴露稳定的公网端点，**Outbound** 在架构美感和资源受控度上更优。
 - 如果你追求**快速交付、内网安全**，且不希望处理复杂的防火墙穿透问题，**Inbound** 带来的微小性能损失在 Java 异步框架（如 Netty/WebFlux）下几乎可以忽略不计。
+
+> **sessionToken 架构规则**
+>
+> Inbound 和 Outbound 两种模式遵循相同的鉴权模式：**开发者后端**直接用 API Key 调用 `/session/start`，获得 `clientToken + sfuUrl` 后分发给前端。两种模式均**不需要** `sessionToken`（即通过 `/auth/getAuthToken` 获取的令牌）。
+>
+> `sessionToken` 仅在轻量托管模式（全托管、API Key 托管）中使用——此类模式下**前端**直接调用 `/session/start`，后端仅作为 Token 中转，以避免 API Key 暴露在客户端，同时减少后端深度介入。
 
 ---
 

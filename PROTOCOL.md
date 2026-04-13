@@ -94,14 +94,14 @@ sequenceDiagram
     Platform->>Avatar: Start avatar
     Avatar->>RTC: Join room
     Avatar->>Platform: Start complete
-    Platform->>AppServer: { sessionId, clientRtcToken, agentWsUrl, sfuUrl }
+    Platform->>AppServer: { sessionId, clientToken, agentWsUrl, sfuUrl }
     AppServer-->>Platform: Establish WebSocket connection via agentWsUrl
-    Note right of AppServer: No session_token or frontend involvement in session setup<br/>AppServer calls /session/start directly with API Key<br/>agentWsUrl returned directly to AppServer (never forwarded to frontend)<br/>AppServer initiates WebSocket connection (developer side is WS client)<br/>Developer side needs no public IP
+    Note right of AppServer: No sessionToken or frontend involvement in session setup<br/>AppServer calls /session/start directly with API Key<br/>agentWsUrl returned directly to AppServer (never forwarded to frontend)<br/>AppServer initiates WebSocket connection (developer side is WS client)<br/>Developer side needs no public IP
     end
-    AppServer->>User: { clientRtcToken, sfuUrl }
+    AppServer->>User: { clientToken, sfuUrl }
 
     %% 2. RTC link establishment
-    User->>RTC: Join room (clientRtcToken)
+    User->>RTC: Join room (clientToken)
     User-->>RTC: Publish text/audio stream
 
     %% 3. Core business loop
@@ -133,27 +133,22 @@ sequenceDiagram
     participant RTC as RTC Room (SFU)
     participant Avatar as Avatar Engine
 
-    %% 1. Auth & Initialization
-    AppServer->>Platform: /auth/getAuthToken (API Key)
-    Platform->>AppServer: Return session_token
-    AppServer->>User: Return session_token
-
-    User->>Platform: /session/start
-
-    %% Key difference: Outbound mode connection initiation
+    %% Key difference: Outbound mode — backend calls /session/start directly, no sessionToken needed
     rect rgb(220, 245, 220)
-    Note over Platform, AppServer: [Outbound Key Difference]
-    Platform-->>AppServer: 5. Establish WebSocket connection (platform as Client)
-    Note left of AppServer: Developer side must expose public IP/domain<br/>Must handle platform handshake auth
-    end
-
+    Note over AppServer, Platform: [Outbound Key Difference]
+    AppServer->>Platform: /session/start (API Key)
+    Platform-->>AppServer: Establish WebSocket connection (platform as Client)
+    Note left of AppServer: Developer side must expose public IP/domain<br/>Must handle platform handshake auth<br/>Backend calls /session/start directly with API Key — no sessionToken needed
     Platform->>Avatar: Start avatar
     Avatar->>RTC: Join room
     Avatar->>Platform: Start complete
-    Platform->>User: Return clientRtcToken
+    Platform->>AppServer: { sessionId, clientToken, sfuUrl }
+    end
+
+    AppServer->>User: { clientToken, sfuUrl }
 
     %% 2. RTC link establishment
-    User->>RTC: Join room
+    User->>RTC: Join room (clientToken)
     User-->>RTC: Publish text/audio stream
 
     %% 3. Core business loop
@@ -176,6 +171,12 @@ sequenceDiagram
 
 - If your business demands **ultra-low latency and large-scale concurrency stability**, and you have a mature ops team capable of exposing a stable public endpoint, **Outbound** offers better architectural clarity and resource control.
 - If you prioritize **rapid delivery and internal network security**, and want to avoid complex firewall traversal, **Inbound** introduces only a negligible performance overhead that is nearly imperceptible under async Java frameworks such as Netty or WebFlux.
+
+> **sessionToken Architecture Rule**
+>
+> Both Inbound and Outbound modes follow the same auth pattern: the **developer backend** calls `/session/start` directly with an API Key and receives `clientToken + sfuUrl` to distribute to the frontend. A `sessionToken` (obtained via `/auth/getAuthToken`) is **not required** in either mode.
+>
+> `sessionToken` is only used in lightweight managed modes (fully-managed, API Key-managed) where the **frontend** calls `/session/start` directly and the backend only acts as a token relay — keeping the API Key off the client while avoiding deep backend involvement.
 
 ---
 
