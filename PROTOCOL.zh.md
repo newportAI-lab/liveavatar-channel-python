@@ -8,7 +8,7 @@
 
 ## 场景支持考量
 
-1. WebSocket 和 WebRTC Data Channel 使用的文本协议格式保持一致（除了心跳部分）。
+1. WebSocket 和 WebRTC Data Channel 使用的文本协议格式保持一致。
 2. 消息类型语义化，方便理解。
 3. 支持流式数据传输。
 4. 抗乱序。
@@ -50,6 +50,7 @@
 | asr | input.asr |
 | chunk | response.chunk |
 | done | response.done |
+| cancel | response.cancel |
 | interrupt | control.interrupt |
 | prompt | system.prompt |
 | idleTrigger | system.idleTrigger |
@@ -64,9 +65,6 @@
 | --- | --- |
 | partial | input.asr.partial |
 | final | input.asr.final |
-| chunk | response.chunk |
-| done | response.done |
-| cancel | response.cancel |
 
 ---
 
@@ -177,11 +175,11 @@ sequenceDiagram
 - 如果你的业务对**极低延迟和大规模并发稳定性**有要求，且你有成熟的运维团队能暴露稳定的公网端点，**Outbound** 在架构美感和资源受控度上更优。
 - 如果你追求**快速交付、内网安全**，且不希望处理复杂的防火墙穿透问题，**Inbound** 带来的微小性能损失在 Java 异步框架（如 Netty/WebFlux）下几乎可以忽略不计。
 
-> **sessionToken 架构规则**
+> **sessionToken 架构说明**
 >
-> Inbound 和 Outbound 两种模式遵循相同的鉴权模式：**开发者后端**直接用 API Key 调用 `/session/start`，获得 `clientToken + sfuUrl` 后分发给前端。两种模式均**不需要** `sessionToken`（即通过 `/auth/getAuthToken` 获取的令牌）。
+> Inbound 和 Outbound 两种模式采用相同的认证模式：**开发者后端**直接用 API Key 调用 `/session/start`，获得 `clientToken + sfuUrl` 后分发给前端。两种模式均**不需要** `sessionToken`（即通过 `/auth/getAuthToken` 获取的令牌）。
 >
-> `sessionToken` 仅在轻量托管模式（全托管、API Key 托管）中使用——此类模式下**前端**直接调用 `/session/start`，后端仅作为 Token 中转，以避免 API Key 暴露在客户端，同时减少后端深度介入。
+> `sessionToken` 仅用于轻量托管模式（全托管、API Key 托管），在这些模式下**前端**直接调用 `/session/start`，后端仅充当令牌中转——既避免 API Key 暴露在客户端，又无需后端深度介入。
 
 ---
 

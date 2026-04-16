@@ -8,7 +8,7 @@ Since the Live Avatar system also supports text communication via LiveKit Data C
 
 ## Design Goals
 
-1. WebSocket and WebRTC Data Channel share the same text protocol format (except for heartbeat).
+1. WebSocket and WebRTC Data Channel share the same text protocol format.
 2. Semantic message type naming for ease of understanding.
 3. Streaming data transmission support.
 4. Out-of-order resilience.
@@ -42,16 +42,17 @@ We use the term "event" to designate message types. To prevent confusion as the 
 
 Describes "what is being done"
 
-| Action | Example |
-| --- | --- |
-| init | session.init |
-| ready | session.ready |
-| text | input.text |
-| asr | input.asr |
-| chunk | response.chunk |
-| done | response.done |
-| interrupt | control.interrupt |
-| prompt | system.prompt |
+| Action      | Example            |
+|-------------|--------------------|
+| init        | session.init       |
+| ready       | session.ready      |
+| text        | input.text         |
+| asr         | input.asr          |
+| chunk       | response.chunk     |
+| done        | response.done      |
+| cancel      | response.cancel    |
+| interrupt   | control.interrupt  |
+| prompt      | system.prompt      |
 | idleTrigger | system.idleTrigger |
 
 ---
@@ -64,9 +65,6 @@ Used for "streaming / state"
 | --- | --- |
 | partial | input.asr.partial |
 | final | input.asr.final |
-| chunk | response.chunk |
-| done | response.done |
-| cancel | response.cancel |
 
 ---
 
@@ -616,6 +614,7 @@ Prompt audio does not count toward the accumulated user idle time.
 👉 Core Principle:
 
 **Aside from the fact that ping/pong requests are no longer required, the protocol format remains entirely identical; the only difference is that traffic is routed via RTC.**
+
 
 ---
 
