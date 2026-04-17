@@ -51,6 +51,17 @@ class AvatarChannelListener(ABC):
         """
 
     @abstractmethod
+    async def on_scene_ready(self) -> None:
+        """
+        Frontend scene is ready for conversation (LiveKit DataChannel only).
+
+        Sent by the JS SDK over the LiveKit DataChannel once the visual
+        scene has finished initialising. Handled by the Live Avatar Service
+        in production; provided here so reference implementations of that
+        role can react to it. No payload.
+        """
+
+    @abstractmethod
     async def on_input_text(self, request_id: str, text: str) -> None:
         """
         User provided text input.
@@ -202,9 +213,7 @@ class AvatarChannelListener(ABC):
         """
 
     @abstractmethod
-    async def on_error(
-        self, request_id: Optional[str], code: str, message: str
-    ) -> None:
+    async def on_error(self, request_id: Optional[str], code: str, message: str) -> None:
         """
         Error received from the avatar service.
 

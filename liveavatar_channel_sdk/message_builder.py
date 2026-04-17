@@ -41,6 +41,13 @@ class MessageBuilder:
         }
 
     @staticmethod
+    def scene_ready() -> dict:
+        """scene.ready: Sent by JS SDK over LiveKit DataChannel once the
+        frontend scene is ready for conversation. Handled by the Live Avatar
+        Service. No payload."""
+        return {"event": EventType.SCENE_READY}
+
+    @staticmethod
     def input_text(request_id: str, text: str) -> dict:
         """input.text: User typed text input."""
         return {

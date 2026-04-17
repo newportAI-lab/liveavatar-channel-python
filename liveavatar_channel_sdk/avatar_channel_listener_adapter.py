@@ -27,6 +27,9 @@ class AvatarChannelListenerAdapter(AvatarChannelListener):
     async def on_session_closing(self, reason: Optional[str]) -> None:
         pass
 
+    async def on_scene_ready(self) -> None:
+        pass
+
     async def on_input_text(self, request_id: str, text: str) -> None:
         pass
 
@@ -79,9 +82,7 @@ class AvatarChannelListenerAdapter(AvatarChannelListener):
     async def on_control_interrupt(self, request_id: Optional[str]) -> None:
         pass
 
-    async def on_error(
-        self, request_id: Optional[str], code: str, message: str
-    ) -> None:
+    async def on_error(self, request_id: Optional[str], code: str, message: str) -> None:
         pass
 
     async def on_audio_frame(self, frame: AudioFrame) -> None:

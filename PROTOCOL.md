@@ -613,8 +613,19 @@ Prompt audio does not count toward the accumulated user idle time.
 
 👉 Core Principle:
 
-**Aside from the fact that ping/pong requests are no longer required, the protocol format remains entirely identical; the only difference is that traffic is routed via RTC.**
+**The protocol format remains almost identical, however there are still some differences;**
 
+### ping/pong
+no ping/pong message needed
+
+---
+
+### Scene is ready, conversation can start now(Sent by JS SDK, expected to be handled by Live Avatar Service)
+```json
+{
+  "event": "scene.ready"
+}
+```
 
 ---
 

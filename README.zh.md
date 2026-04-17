@@ -181,13 +181,16 @@ pytest -s -v
 |---|---|---|
 | `session.init` | 数字人 → 开发者 | 开启会话 |
 | `session.ready` | 开发者 → 数字人 | 确认会话就绪 |
+| `scene.ready` | JS SDK → 数字人（仅 LiveKit 数据通道） | 前端场景就绪，可开始对话 |
 | `input.text` | 数字人 → 开发者 | 用户文字输入 |
 | `response.chunk` | 开发者 → 数字人 | 流式文本片段（含 `seq`） |
 | `response.done` | 开发者 → 数字人 | 流式响应结束 |
-| `control.interrupt` | 开发者 → 数字人 | 中断当前播放 |
+| `control.interrupt` | 开发者 → 数字人 | 中断当前播放（仅由 ASR 的提供方发出） |
 | `system.idleTrigger` | 数字人 → 开发者 | 数字人已空闲 |
 
-完整协议参考请查阅 [`PROTOCOL.md`](PROTOCOL.md)。
+> **场景 2B — 开发者自提供 ASR / Omni：** 当 ASR 由开发者承担时，平台仅以二进制帧转发原始音频，开发者需将 `input.voice.*` 与 `input.asr.*` 事件**回传给平台**（协议相同，方向相反）。可使用 `client.send_input_voice_start` / `send_input_voice_finish` / `send_input_asr_partial` / `send_input_asr_final` 进行发送。
+
+完整协议参考请查阅 [`PROTOCOL.md`](PROTOCOL.md)（或 [`PROTOCOL.zh.md`](PROTOCOL.zh.md)）。
 
 ## 代码规范
 

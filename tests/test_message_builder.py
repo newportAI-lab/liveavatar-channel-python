@@ -2,8 +2,6 @@
 
 import json
 
-import pytest
-
 from liveavatar_channel_sdk.audio_frame import AudioFrame
 from liveavatar_channel_sdk.audio_frame_builder import AudioFrameBuilder
 from liveavatar_channel_sdk.event_type import EventType
@@ -11,9 +9,12 @@ from liveavatar_channel_sdk.image_frame import ImageFrame
 from liveavatar_channel_sdk.image_frame_builder import ImageFrameBuilder
 from liveavatar_channel_sdk.message_builder import MessageBuilder
 
-
 # ============================================================================
 # MessageBuilder Tests
+#
+# All messages use an "event" field (not "type") and nest payload data under
+# a "data" key where the protocol requires it. Top-level identifiers such as
+# requestId / responseId / seq / timestamp sit outside "data".
 # ============================================================================
 
 
@@ -22,24 +23,28 @@ class TestMessageBuilderSessions:
 
     def test_session_init(self):
         msg = MessageBuilder.session_init("sess-1", "user-1")
-        assert msg["type"] == EventType.SESSION_INIT
-        assert msg["sessionId"] == "sess-1"
-        assert msg["userId"] == "user-1"
-        assert len(msg) == 3
+        assert msg["event"] == EventType.SESSION_INIT
+        assert msg["data"]["sessionId"] == "sess-1"
+        assert msg["data"]["userId"] == "user-1"
+        assert set(msg.keys()) == {"event", "data"}
 
     def test_session_ready(self):
         msg = MessageBuilder.session_ready()
         assert msg["event"] == EventType.SESSION_READY
-        assert "sessionId" not in msg
-        assert len(msg) == 1
+        assert set(msg.keys()) == {"event"}
 
     def test_session_state(self):
         msg = MessageBuilder.session_state("IDLE", 42, 10000)
-        assert msg["type"] == EventType.SESSION_STATE
-        assert msg["state"] == "IDLE"
+        assert msg["event"] == EventType.SESSION_STATE
         assert msg["seq"] == 42
         assert msg["timestamp"] == 10000
-        assert len(msg) == 4
+        assert msg["data"]["state"] == "IDLE"
+        assert set(msg.keys()) == {"event", "seq", "timestamp", "data"}
+
+    def test_scene_ready(self):
+        msg = MessageBuilder.scene_ready()
+        assert msg["event"] == EventType.SCENE_READY
+        assert set(msg.keys()) == {"event"}
 
 
 class TestMessageBuilderInput:
@@ -47,39 +52,41 @@ class TestMessageBuilderInput:
 
     def test_input_text(self):
         msg = MessageBuilder.input_text("req-1", "hello world")
-        assert msg["type"] == EventType.INPUT_TEXT
+        assert msg["event"] == EventType.INPUT_TEXT
         assert msg["requestId"] == "req-1"
-        assert msg["text"] == "hello world"
-        assert len(msg) == 3
+        assert msg["data"]["text"] == "hello world"
+        assert set(msg.keys()) == {"event", "requestId", "data"}
 
     def test_input_asr_partial(self):
         msg = MessageBuilder.input_asr_partial("req-1", "hel", 1)
-        assert msg["type"] == EventType.INPUT_ASR_PARTIAL
+        assert msg["event"] == EventType.INPUT_ASR_PARTIAL
         assert msg["requestId"] == "req-1"
-        assert msg["text"] == "hel"
         assert msg["seq"] == 1
-        assert msg["final"] is False
-        assert len(msg) == 5
+        assert msg["data"]["text"] == "hel"
+        assert msg["data"]["final"] is False
+        assert set(msg.keys()) == {"event", "requestId", "seq", "data"}
 
     def test_input_asr_final(self):
         msg = MessageBuilder.input_asr_final("req-1", "hello")
-        assert msg["type"] == EventType.INPUT_ASR_FINAL
+        assert msg["event"] == EventType.INPUT_ASR_FINAL
         assert msg["requestId"] == "req-1"
-        assert msg["text"] == "hello"
-        assert msg["final"] is True
-        assert len(msg) == 4
+        assert msg["data"]["text"] == "hello"
+        # PROTOCOL.md does not define a `final` field on input.asr.final — the
+        # event name itself carries that semantic.
+        assert "final" not in msg["data"]
+        assert set(msg.keys()) == {"event", "requestId", "data"}
 
     def test_input_voice_start(self):
         msg = MessageBuilder.input_voice_start("req-1")
-        assert msg["type"] == EventType.INPUT_VOICE_START
+        assert msg["event"] == EventType.INPUT_VOICE_START
         assert msg["requestId"] == "req-1"
-        assert len(msg) == 2
+        assert set(msg.keys()) == {"event", "requestId"}
 
     def test_input_voice_finish(self):
         msg = MessageBuilder.input_voice_finish("req-1")
-        assert msg["type"] == EventType.INPUT_VOICE_FINISH
+        assert msg["event"] == EventType.INPUT_VOICE_FINISH
         assert msg["requestId"] == "req-1"
-        assert len(msg) == 2
+        assert set(msg.keys()) == {"event", "requestId"}
 
 
 class TestMessageBuilderResponse:
@@ -87,78 +94,81 @@ class TestMessageBuilderResponse:
 
     def test_response_start_minimal(self):
         msg = MessageBuilder.response_start("req-1", "resp-1")
-        assert msg["type"] == EventType.RESPONSE_START
+        assert msg["event"] == EventType.RESPONSE_START
         assert msg["requestId"] == "req-1"
         assert msg["responseId"] == "resp-1"
-        assert msg["audioConfig"]["speed"] == 1.0
-        assert msg["audioConfig"]["volume"] == 1.0
-        assert "mood" not in msg["audioConfig"]
-        assert len(msg) == 4
+        assert msg["data"]["audioConfig"]["speed"] == 1.0
+        assert msg["data"]["audioConfig"]["volume"] == 1.0
+        assert "mood" not in msg["data"]["audioConfig"]
+        assert set(msg.keys()) == {"event", "requestId", "responseId", "data"}
 
     def test_response_start_with_custom_speed_volume(self):
         msg = MessageBuilder.response_start("req-1", "resp-1", speed=1.5, volume=0.8)
-        assert msg["type"] == EventType.RESPONSE_START
-        assert msg["audioConfig"]["speed"] == 1.5
-        assert msg["audioConfig"]["volume"] == 0.8
-        assert "mood" not in msg["audioConfig"]
+        assert msg["event"] == EventType.RESPONSE_START
+        assert msg["data"]["audioConfig"]["speed"] == 1.5
+        assert msg["data"]["audioConfig"]["volume"] == 0.8
+        assert "mood" not in msg["data"]["audioConfig"]
 
     def test_response_start_with_mood(self):
-        msg = MessageBuilder.response_start(
-            "req-1", "resp-1", speed=1.2, volume=1.0, mood="happy"
-        )
-        assert msg["type"] == EventType.RESPONSE_START
-        assert msg["audioConfig"]["speed"] == 1.2
-        assert msg["audioConfig"]["volume"] == 1.0
-        assert msg["audioConfig"]["mood"] == "happy"
+        msg = MessageBuilder.response_start("req-1", "resp-1", speed=1.2, volume=1.0, mood="happy")
+        assert msg["event"] == EventType.RESPONSE_START
+        assert msg["data"]["audioConfig"]["speed"] == 1.2
+        assert msg["data"]["audioConfig"]["volume"] == 1.0
+        assert msg["data"]["audioConfig"]["mood"] == "happy"
 
     def test_response_chunk(self):
-        msg = MessageBuilder.response_chunk(
-            "req-1", "resp-1", seq=3, timestamp=1000, text="hello"
-        )
-        assert msg["type"] == EventType.RESPONSE_CHUNK
+        msg = MessageBuilder.response_chunk("req-1", "resp-1", seq=3, timestamp=1000, text="hello")
+        assert msg["event"] == EventType.RESPONSE_CHUNK
         assert msg["requestId"] == "req-1"
         assert msg["responseId"] == "resp-1"
         assert msg["seq"] == 3
         assert msg["timestamp"] == 1000
-        assert msg["text"] == "hello"
-        assert len(msg) == 6
+        assert msg["data"]["text"] == "hello"
+        assert set(msg.keys()) == {
+            "event",
+            "requestId",
+            "responseId",
+            "seq",
+            "timestamp",
+            "data",
+        }
 
     def test_response_done(self):
         msg = MessageBuilder.response_done("req-1", "resp-1")
-        assert msg["type"] == EventType.RESPONSE_DONE
+        assert msg["event"] == EventType.RESPONSE_DONE
         assert msg["requestId"] == "req-1"
         assert msg["responseId"] == "resp-1"
-        assert len(msg) == 3
+        assert set(msg.keys()) == {"event", "requestId", "responseId"}
 
     def test_response_audio_start(self):
         msg = MessageBuilder.response_audio_start("req-1", "resp-1")
-        assert msg["type"] == EventType.RESPONSE_AUDIO_START
+        assert msg["event"] == EventType.RESPONSE_AUDIO_START
         assert msg["requestId"] == "req-1"
         assert msg["responseId"] == "resp-1"
-        assert len(msg) == 3
+        assert set(msg.keys()) == {"event", "requestId", "responseId"}
 
     def test_response_audio_finish(self):
         msg = MessageBuilder.response_audio_finish("req-1", "resp-1")
-        assert msg["type"] == EventType.RESPONSE_AUDIO_FINISH
+        assert msg["event"] == EventType.RESPONSE_AUDIO_FINISH
         assert msg["requestId"] == "req-1"
         assert msg["responseId"] == "resp-1"
-        assert len(msg) == 3
+        assert set(msg.keys()) == {"event", "requestId", "responseId"}
 
     def test_response_audio_prompt_start(self):
         msg = MessageBuilder.response_audio_prompt_start()
-        assert msg["type"] == EventType.RESPONSE_AUDIO_PROMPT_START
-        assert len(msg) == 1
+        assert msg["event"] == EventType.RESPONSE_AUDIO_PROMPT_START
+        assert set(msg.keys()) == {"event"}
 
     def test_response_audio_prompt_finish(self):
         msg = MessageBuilder.response_audio_prompt_finish()
-        assert msg["type"] == EventType.RESPONSE_AUDIO_PROMPT_FINISH
-        assert len(msg) == 1
+        assert msg["event"] == EventType.RESPONSE_AUDIO_PROMPT_FINISH
+        assert set(msg.keys()) == {"event"}
 
     def test_response_cancel(self):
         msg = MessageBuilder.response_cancel("resp-1")
-        assert msg["type"] == EventType.RESPONSE_CANCEL
+        assert msg["event"] == EventType.RESPONSE_CANCEL
         assert msg["responseId"] == "resp-1"
-        assert len(msg) == 2
+        assert set(msg.keys()) == {"event", "responseId"}
 
 
 class TestMessageBuilderControl:
@@ -166,15 +176,15 @@ class TestMessageBuilderControl:
 
     def test_control_interrupt_without_request_id(self):
         msg = MessageBuilder.control_interrupt()
-        assert msg["type"] == EventType.CONTROL_INTERRUPT
+        assert msg["event"] == EventType.CONTROL_INTERRUPT
         assert "requestId" not in msg
-        assert len(msg) == 1
+        assert set(msg.keys()) == {"event"}
 
     def test_control_interrupt_with_request_id(self):
         msg = MessageBuilder.control_interrupt(request_id="req-1")
-        assert msg["type"] == EventType.CONTROL_INTERRUPT
+        assert msg["event"] == EventType.CONTROL_INTERRUPT
         assert msg["requestId"] == "req-1"
-        assert len(msg) == 2
+        assert set(msg.keys()) == {"event", "requestId"}
 
 
 class TestMessageBuilderSystem:
@@ -182,16 +192,16 @@ class TestMessageBuilderSystem:
 
     def test_system_idle_trigger(self):
         msg = MessageBuilder.system_idle_trigger("no_input", 30000)
-        assert msg["type"] == EventType.SYSTEM_IDLE_TRIGGER
-        assert msg["reason"] == "no_input"
-        assert msg["idleTimeMs"] == 30000
-        assert len(msg) == 3
+        assert msg["event"] == EventType.SYSTEM_IDLE_TRIGGER
+        assert msg["data"]["reason"] == "no_input"
+        assert msg["data"]["idleTimeMs"] == 30000
+        assert set(msg.keys()) == {"event", "data"}
 
     def test_system_prompt(self):
         msg = MessageBuilder.system_prompt("Hey there, are you there?")
-        assert msg["type"] == EventType.SYSTEM_PROMPT
-        assert msg["text"] == "Hey there, are you there?"
-        assert len(msg) == 2
+        assert msg["event"] == EventType.SYSTEM_PROMPT
+        assert msg["data"]["text"] == "Hey there, are you there?"
+        assert set(msg.keys()) == {"event", "data"}
 
 
 class TestMessageBuilderError:
@@ -199,32 +209,30 @@ class TestMessageBuilderError:
 
     def test_error_without_request_id(self):
         msg = MessageBuilder.error("TIMEOUT", "Request timed out")
-        assert msg["type"] == EventType.ERROR
-        assert msg["code"] == "TIMEOUT"
-        assert msg["message"] == "Request timed out"
+        assert msg["event"] == EventType.ERROR
+        assert msg["data"]["code"] == "TIMEOUT"
+        assert msg["data"]["message"] == "Request timed out"
         assert "requestId" not in msg
-        assert len(msg) == 3
+        assert set(msg.keys()) == {"event", "data"}
 
     def test_error_with_request_id(self):
-        msg = MessageBuilder.error(
-            "INVALID_STATE", "Invalid state transition", request_id="req-1"
-        )
-        assert msg["type"] == EventType.ERROR
-        assert msg["code"] == "INVALID_STATE"
-        assert msg["message"] == "Invalid state transition"
+        msg = MessageBuilder.error("INVALID_STATE", "Invalid state transition", request_id="req-1")
+        assert msg["event"] == EventType.ERROR
+        assert msg["data"]["code"] == "INVALID_STATE"
+        assert msg["data"]["message"] == "Invalid state transition"
         assert msg["requestId"] == "req-1"
-        assert len(msg) == 4
+        assert set(msg.keys()) == {"event", "requestId", "data"}
 
 
 class TestMessageBuilderJsonSerializable:
-    """Test that all messages can be JSON-serialized."""
+    """Test that all messages can be JSON-serialized and round-tripped."""
 
     def test_all_messages_json_serializable(self):
-        """Verify that all message types can be serialized to JSON."""
         messages = [
             MessageBuilder.session_init("sess-1", "user-1"),
             MessageBuilder.session_ready(),
             MessageBuilder.session_state("IDLE", 0, 0),
+            MessageBuilder.scene_ready(),
             MessageBuilder.input_text("req-1", "hello"),
             MessageBuilder.input_asr_partial("req-1", "hel", 0),
             MessageBuilder.input_asr_final("req-1", "hello"),
@@ -245,12 +253,11 @@ class TestMessageBuilderJsonSerializable:
         ]
 
         for msg in messages:
-            # Should not raise
             json_str = json.dumps(msg)
             assert isinstance(json_str, str)
-            # Should be able to parse back
             parsed = json.loads(json_str)
-            assert parsed["type"] is not None
+            # Every protocol message carries an "event" identifier.
+            assert parsed["event"] is not None
 
 
 # ============================================================================

@@ -10,6 +10,9 @@ class EventType(str, Enum):
     SESSION_STATE = "session.state"
     SESSION_CLOSING = "session.closing"
 
+    # Scene events (LiveKit DataChannel only; JS SDK → Live Avatar Service)
+    SCENE_READY = "scene.ready"
+
     # Input events
     INPUT_TEXT = "input.text"
     INPUT_ASR_PARTIAL = "input.asr.partial"

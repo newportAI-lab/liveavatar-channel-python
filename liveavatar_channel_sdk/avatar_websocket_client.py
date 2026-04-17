@@ -126,6 +126,28 @@ class AvatarWebSocketClient:
     async def send_session_ready(self) -> None:
         await self.send_json(MessageBuilder.session_ready())
 
+    async def send_scene_ready(self) -> None:
+        """scene.ready — LiveKit DataChannel only; sent by the JS SDK to signal
+        the frontend scene is ready for conversation."""
+        await self.send_json(MessageBuilder.scene_ready())
+
+    # Scenario 2B (Developer ASR / Omni): the developer runs ASR+VAD
+    # internally and sends the input.voice.* / input.asr.* events back to
+    # the platform. Protocol shape is identical to Scenario 2A, direction
+    # is reversed.
+
+    async def send_input_voice_start(self, request_id: str) -> None:
+        await self.send_json(MessageBuilder.input_voice_start(request_id))
+
+    async def send_input_voice_finish(self, request_id: str) -> None:
+        await self.send_json(MessageBuilder.input_voice_finish(request_id))
+
+    async def send_input_asr_partial(self, request_id: str, text: str, seq: int) -> None:
+        await self.send_json(MessageBuilder.input_asr_partial(request_id, text, seq))
+
+    async def send_input_asr_final(self, request_id: str, text: str) -> None:
+        await self.send_json(MessageBuilder.input_asr_final(request_id, text))
+
     async def send_response_start(
         self,
         request_id: str,
@@ -162,9 +184,7 @@ class AvatarWebSocketClient:
     async def send_system_prompt(self, text: str) -> None:
         await self.send_json(MessageBuilder.system_prompt(text))
 
-    async def send_error(
-        self, code: str, message: str, request_id: Optional[str] = None
-    ) -> None:
+    async def send_error(self, code: str, message: str, request_id: Optional[str] = None) -> None:
         await self.send_json(MessageBuilder.error(code, message, request_id))
 
     async def send_audio_frame(self, frame: AudioFrame) -> None:
@@ -261,6 +281,9 @@ class AvatarWebSocketClient:
 
             elif event_type == EventType.SESSION_CLOSING:
                 await listener.on_session_closing(reason=data.get("reason"))
+
+            elif event_type == EventType.SCENE_READY:
+                await listener.on_scene_ready()
 
             elif event_type == EventType.INPUT_TEXT:
                 await listener.on_input_text(

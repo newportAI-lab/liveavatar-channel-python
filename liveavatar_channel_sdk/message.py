@@ -46,6 +46,18 @@ class SessionClosingMessage:
 
 
 @dataclass
+class SceneReadyMessage:
+    """Scene ready notification sent by JS SDK over the LiveKit DataChannel.
+
+    Signals that the frontend scene has finished setting up and the
+    conversation can begin. Handled by the Live Avatar Service; has no
+    payload beyond the event name.
+    """
+
+    event: str  # "scene.ready"
+
+
+@dataclass
 class InputTextMessage:
     """User text input message sent by avatar service."""
 

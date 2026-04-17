@@ -616,7 +616,19 @@ prompt 音频不参与用户闲置累计计时。
 
 👉 核心原则：
 
-**除了 ping/pong 请求不再需要，其它协议格式完全一样，只是走 RTC。**
+**协议格式几乎完全一致，但仍存在一些差异：**
+
+### ping/pong
+无需发送 ping/pong 消息
+
+---
+
+### 场景已就绪，对话可以开始（由 JS SDK 发送，由 Live Avatar Service 处理）
+```json
+{
+  "event": "scene.ready"
+}
+```
 
 ---
 
