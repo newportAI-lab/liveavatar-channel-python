@@ -2,17 +2,14 @@
 
 **English** | [中文](./PROTOCOL.zh.md)
 
-This protocol defines the WebSocket communication between the Live Avatar (digital human) service and developer services, covering text, audio, and image content.
-
-Since the Live Avatar system also supports text communication via LiveKit Data Channel, the protocol documentation also covers the Data Channel protocol.
+This protocol defines the WebSocket communication between the Live Avatar platform (coordinator) and developer services (agent), covering text, audio, and image content.
 
 ## Design Goals
 
-1. WebSocket and WebRTC Data Channel share the same text protocol format.
-2. Semantic message type naming for ease of understanding.
-3. Streaming data transmission support.
-4. Out-of-order resilience.
-5. Extensible to multi-user room scenarios.
+1. Semantic message type naming for ease of understanding.
+2. Streaming data transmission support.
+3. Out-of-order resilience.
+4. Extensible to multi-session scenarios.
 
 ## Text Message Type Naming Conventions
 
@@ -42,17 +39,16 @@ We use the term "event" to designate message types. To prevent confusion as the 
 
 Describes "what is being done"
 
-| Action      | Example            |
-|-------------|--------------------|
-| init        | session.init       |
-| ready       | session.ready      |
-| text        | input.text         |
-| asr         | input.asr          |
-| chunk       | response.chunk     |
-| done        | response.done      |
-| cancel      | response.cancel    |
-| interrupt   | control.interrupt  |
-| prompt      | system.prompt      |
+| Action | Example |
+| --- | --- |
+| init | session.init |
+| ready | session.ready |
+| text | input.text |
+| asr | input.asr |
+| chunk | response.chunk |
+| done | response.done |
+| interrupt | control.interrupt |
+| prompt | system.prompt |
 | idleTrigger | system.idleTrigger |
 
 ---
@@ -65,6 +61,9 @@ Used for "streaming / state"
 | --- | --- |
 | partial | input.asr.partial |
 | final | input.asr.final |
+| chunk | response.chunk |
+| done | response.done |
+| cancel | response.cancel |
 
 ---
 
@@ -92,14 +91,14 @@ sequenceDiagram
     Platform->>Avatar: Start avatar
     Avatar->>RTC: Join room
     Avatar->>Platform: Start complete
-    Platform->>AppServer: { sessionId, clientToken, agentWsUrl, sfuUrl }
+    Platform->>AppServer: { sessionId, userToken, agentWsUrl, sfuUrl }
     AppServer-->>Platform: Establish WebSocket connection via agentWsUrl
     Note right of AppServer: No sessionToken or frontend involvement in session setup<br/>AppServer calls /session/start directly with API Key<br/>agentWsUrl returned directly to AppServer (never forwarded to frontend)<br/>AppServer initiates WebSocket connection (developer side is WS client)<br/>Developer side needs no public IP
     end
-    AppServer->>User: { clientToken, sfuUrl }
+    AppServer->>User: { userToken, sfuUrl }
 
     %% 2. RTC link establishment
-    User->>RTC: Join room (clientToken)
+    User->>RTC: Join room (userToken)
     User-->>RTC: Publish text/audio stream
 
     %% 3. Core business loop
@@ -140,13 +139,13 @@ sequenceDiagram
     Platform->>Avatar: Start avatar
     Avatar->>RTC: Join room
     Avatar->>Platform: Start complete
-    Platform->>AppServer: { sessionId, clientToken, sfuUrl }
+    Platform->>AppServer: { sessionId, userToken, sfuUrl }
     end
 
-    AppServer->>User: { clientToken, sfuUrl }
+    AppServer->>User: { userToken, sfuUrl }
 
     %% 2. RTC link establishment
-    User->>RTC: Join room (clientToken)
+    User->>RTC: Join room (userToken)
     User-->>RTC: Publish text/audio stream
 
     %% 3. Core business loop
@@ -172,7 +171,7 @@ sequenceDiagram
 
 > **sessionToken Architecture Rule**
 >
-> Both Inbound and Outbound modes follow the same auth pattern: the **developer backend** calls `/session/start` directly with an API Key and receives `clientToken + sfuUrl` to distribute to the frontend. A `sessionToken` (obtained via `/auth/getAuthToken`) is **not required** in either mode.
+> Both Inbound and Outbound modes follow the same auth pattern: the **developer backend** calls `/session/start` directly with an API Key and receives `userToken + sfuUrl` to distribute to the frontend. A `sessionToken` (obtained via `/auth/getAuthToken`) is **not required** in either mode.
 >
 > `sessionToken` is only used in lightweight managed modes (fully-managed, API Key-managed) where the **frontend** calls `/session/start` directly and the backend only acts as a token relay — keeping the API Key off the client while avoiding deep backend involvement.
 
@@ -205,6 +204,20 @@ sequenceDiagram
   "event": "session.ready"
 }
 ```
+
+---
+
+#### Live Avatar Service → Developer Backend (scene.ready forwarded)
+
+After the user's frontend joins the LiveKit room and the avatar scene renders, the user sends `scene.ready` via Data Channel. The coordinator bridges this to the agent via WebSocket so the agent knows it can begin the conversation.
+
+```json
+{
+  "event": "scene.ready"
+}
+```
+
+> This is a one-way notification. The agent does not reply to it.
 
 ---
 
@@ -609,27 +622,7 @@ Prompt audio does not count toward the accumulated user idle time.
 
 ---
 
-## Scenario 4: LiveKit DataChannel (Low-Latency Path)
-
-👉 Core Principle:
-
-**The protocol format remains almost identical, however there are still some differences;**
-
-### ping/pong
-no ping/pong message needed
-
----
-
-### Scene is ready, conversation can start now(Sent by JS SDK, expected to be handled by Live Avatar Service)
-```json
-{
-  "event": "scene.ready"
-}
-```
-
----
-
-## Scenario 5: Error Handling (Optional)
+## Scenario 4: Error Handling (Optional)
 
 ### Error (Sent by Developer Service)
 

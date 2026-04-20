@@ -2,17 +2,14 @@
 
 [English](./PROTOCOL.md) | **中文**
 
-本协议主要讨论实时交互数字人服务和开发者服务之间的 WebSocket 通信协议，包含文本/音频/图片内容。
-
-由于实时交互数字人系统也支持 LiveKit 的 Data Channel 进行文本通信，协议内容也会涉及 Data Channel 协议。
+本协议专注于 Live Avatar 平台（coordinator）与开发者后端（agent）之间的 WebSocket 点对点通信，包含文本、音频、图片内容。
 
 ## 场景支持考量
 
-1. WebSocket 和 WebRTC Data Channel 使用的文本协议格式保持一致。
-2. 消息类型语义化，方便理解。
-3. 支持流式数据传输。
-4. 抗乱序。
-5. 支持对多用户房间扩展。
+1. 消息类型语义化，方便理解。
+2. 支持流式数据传输。
+3. 抗乱序。
+4. 支持多会话扩展。
 
 ## 文本消息类型命名规范
 
@@ -42,17 +39,17 @@
 
 描述"做什么"
 
-| Action | 示例 |
-| --- | --- |
-| init | session.init |
-| ready | session.ready |
-| text | input.text |
-| asr | input.asr |
-| chunk | response.chunk |
-| done | response.done |
-| cancel | response.cancel |
-| interrupt | control.interrupt |
-| prompt | system.prompt |
+| Action      | 示例                 |
+| ----------- | ------------------ |
+| init        | session.init       |
+| ready       | session.ready      |
+| text        | input.text         |
+| asr         | input.asr          |
+| chunk       | response.chunk     |
+| done        | response.done      |
+| cancel      | response.cancel    |
+| interrupt   | control.interrupt  |
+| prompt      | system.prompt      |
 | idleTrigger | system.idleTrigger |
 
 ---
@@ -208,6 +205,20 @@ sequenceDiagram
   "event": "session.ready"
 }
 ```
+
+---
+
+#### Client（数字人服务）→ Server（开发者服务）— scene.ready 桥接转发
+
+用户前端加入 LiveKit 房间、数字人画面就绪后，user 通过 Data Channel 发送 `scene.ready`。coordinator 收到后通过 WebSocket 桥接转发给 agent，告知画面已就绪、可以开始对话。
+
+```json
+{
+  "event": "scene.ready"
+}
+```
+
+> 此为单向通知，agent 无需回复。
 
 ---
 
@@ -612,27 +623,7 @@ prompt 音频不参与用户闲置累计计时。
 
 ---
 
-## 场景四：LiveKit DataChannel（低延迟路径）
-
-👉 核心原则：
-
-**协议格式几乎完全一致，但仍存在一些差异：**
-
-### ping/pong
-无需发送 ping/pong 消息
-
----
-
-### 场景已就绪，对话可以开始（由 JS SDK 发送，由 Live Avatar Service 处理）
-```json
-{
-  "event": "scene.ready"
-}
-```
-
----
-
-## 场景五：异常处理（optional）
+## 场景四：异常处理（optional）
 
 ### 错误（开发者服务发送）
 
