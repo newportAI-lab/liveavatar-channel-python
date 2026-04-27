@@ -369,9 +369,9 @@ seq = session 内递增。所有 state 值（后续可能扩展）：
 }
 ```
 
-开发者服务发起的信号。
+开发者服务发起的**主动、业务逻辑驱动**的打断信号 — 例如，基于自身业务逻辑、独立于用户输入事件，主动停止数字人播报。
 
-数字人服务只负责执行中断动作。对文本输入和音频输入都是同样逻辑，区别在于开发者服务判定中断的策略：文本输入 → 立即触发；音频输入 → 依赖 VAD 或策略判定。
+> **说明：** 输入事件驱动的打断**无需**发送 `control.interrupt`。平台在处理 `input.text` 或收到 `input.voice.start` 时，会自动清空 RTC 缓冲区。只有当应用逻辑需要在用户输入事件之外主动停止数字人时，才需发送 `control.interrupt`。
 
 打断时传入 requestId 可以帮助精准打断指定的对话，避免因为网络抖动导致误打断，也可以不填。
 
@@ -389,8 +389,8 @@ seq = session 内递增。所有 state 值（后续可能扩展）：
 >
 > **说明：** 语音打断的触发方因 ASR 模式不同而不同：
 >
-> - **平台 ASR** — 平台检测 VAD 并向开发者发送 `input.voice.start`，开发者可据此发出 `control.interrupt`；平台也可能依据自身 VAD 策略自动打断。
-> - **开发者 ASR / Omni** — 开发者接收原始音频 Binary Frame（场景 2B），在内部执行 VAD，并全权负责发出 `control.interrupt`。下图展示的即为此路径。
+> - **平台 ASR** — 平台检测 VAD 并向开发者发送 `input.voice.start`；平台也可能依据自身 VAD 策略自动打断。
+> - **开发者 ASR / Omni** — 开发者接收原始音频 Binary Frame（场景 2B），在内部执行 VAD，并向平台发送 `input.voice.start`。平台收到 `input.voice.start` 后会自动清空 RTC 缓冲区。下图展示的即为此路径。
 
 ```mermaid
 sequenceDiagram
@@ -406,26 +406,27 @@ sequenceDiagram
     rect rgb(240, 248, 255)
         Note right of AppServer: 【文字强打断】
         AppServer->>Task: 2. cancelCurrentResponse() (终止旧任务)
-        AppServer->>Avatar: 3. control.interrupt (清空RTC缓冲区)
     end
     
-    AppServer->>Task: 4. processTextInput (开启新任务)
-    Task-->>Avatar: 5. 推送新回复文本/音频
-    Avatar-->>User: 6. 渲染新回复画面
+    AppServer->>Task: 3. processTextInput (开启新任务)
+    Task-->>Avatar: 4. 推送新回复文本/音频
+    Avatar-->>User: 5. 渲染新回复画面
 
     Note over User, Avatar: 场景 2：数字人正在说话，用户开口说话（开发者 ASR / Omni 路径）
-    Avatar->>AppServer: 7. Binary Frame（平台持续转发原始音频）
+    Avatar->>AppServer: 6. Binary Frame（平台持续转发原始音频）
     
-    AppServer->>AppServer: 8. asrService.detectVoiceActivity（内部 VAD 触发）
+    AppServer->>AppServer: 7. asrService.detectVoiceActivity（内部 VAD 触发）
     
     rect rgb(255, 240, 245)
         Note right of AppServer: 【语音实时打断】
-        AppServer->>Task: 9. cancelCurrentResponse() (确保源头切断)
-        AppServer->>Avatar: 10. control.interrupt (指令下发)
+        AppServer->>Task: 8. cancelCurrentResponse() (确保源头切断)
+        AppServer->>Avatar: 9. input.voice.start（平台自动清空 RTC 缓冲区）
     end
 
-    AppServer->>AppServer: 11. 继续 ASR 识别 & 业务逻辑处理
-    Note over User, Avatar: 重复步骤 4-6 的新回复流程
+    AppServer->>AppServer: 10. 继续 ASR 识别（持续收音 + 发送 input.asr.partial）
+    AppServer->>Avatar: 11. input.voice.finish（VAD 检测到说话结束）
+    AppServer->>Avatar: 12. input.asr.final（识别完成）
+    Note over User, Avatar: 重复步骤 3-5 的新回复流程
 ```
 
 ---

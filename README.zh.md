@@ -185,7 +185,7 @@ pytest -s -v
 | `input.text` | 数字人 → 开发者 | 用户文字输入 |
 | `response.chunk` | 开发者 → 数字人 | 流式文本片段（含 `seq`） |
 | `response.done` | 开发者 → 数字人 | 流式响应结束 |
-| `control.interrupt` | 开发者 → 数字人 | 中断当前播放（仅由 ASR 的提供方发出） |
+| `control.interrupt` | 开发者 → 数字人 | 主动打断（业务逻辑驱动）；输入驱动场景**无需**发送（平台在处理 `input.text` 或收到 `input.voice.start` 时自动清空缓冲区）；仅由 ASR 的提供方发出 |
 | `system.idleTrigger` | 数字人 → 开发者 | 数字人已空闲 |
 
 > **场景 2B — 开发者自提供 ASR / Omni：** 当 ASR 由开发者承担时，平台仅以二进制帧转发原始音频，开发者需将 `input.voice.*` 与 `input.asr.*` 事件**回传给平台**（协议相同，方向相反）。可使用 `client.send_input_voice_start` / `send_input_voice_finish` / `send_input_asr_partial` / `send_input_asr_final` 进行发送。

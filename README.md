@@ -185,7 +185,7 @@ Examples: `session.init`, `input.text`, `response.chunk`, `control.interrupt`
 | `input.text` | avatar → developer | User typed text |
 | `response.chunk` | developer → avatar | Streaming text chunk (with `seq`) |
 | `response.done` | developer → avatar | End of streaming response |
-| `control.interrupt` | developer → avatar | Interrupt current playback (only sent by the party that owns ASR) |
+| `control.interrupt` | developer → avatar | Proactive interrupt for business-logic-driven stops; **not** needed for input-driven flows (platform auto-clears buffer on `input.text` / `input.voice.start`); only sent by the party that owns ASR |
 | `system.idleTrigger` | avatar → developer | Avatar has been idle |
 
 > **Scenario 2B — Developer-provided ASR / Omni:** when ASR runs on your side, the platform forwards raw audio as binary frames only and the developer sends `input.voice.*` / `input.asr.*` events **back to the platform** (same protocol, reversed direction). Use `client.send_input_voice_start` / `send_input_voice_finish` / `send_input_asr_partial` / `send_input_asr_final` for this path.

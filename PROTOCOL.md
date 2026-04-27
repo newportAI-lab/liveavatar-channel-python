@@ -368,9 +368,9 @@ A single response may consist of replies from multiple agents.
 }
 ```
 
-A signal initiated by the Developer Service.
+A signal initiated by the Developer Service for **proactive, business-logic-driven** interrupts — for example, stopping the avatar for a custom reason independent of user input.
 
-The Live Avatar Service is solely responsible for executing the interrupt action. The logic applies identically to both text input and audio input; the distinction lies in the Developer Service's strategy for determining when to interrupt: Text input → trigger immediately. Audio input → relies on VAD (Voice Activity Detection) or a specific policy.
+> **Note:** `control.interrupt` is **not** required for input-driven flows. When the platform processes `input.text` or receives `input.voice.start`, it automatically clears the RTC buffer internally. Use `control.interrupt` only when your application logic needs to stop the avatar outside of a user input event.
 
 Providing `requestId` helps ensure that a specific, designated conversation is interrupted precisely, preventing erroneous interruptions caused by network instability. This field is optional.
 
@@ -388,8 +388,8 @@ The following sequence diagram illustrates the interrupt execution flow.
 >
 > **Note:** Voice interrupt handling differs by ASR mode:
 >
-> - **Platform ASR** — The platform detects VAD and sends `input.voice.start` to the developer, who may then issue `control.interrupt`. The platform may also auto-interrupt based on its own VAD policy.
-> - **Developer ASR / Omni** — The developer receives raw audio Binary Frames (Scenario 2B), runs VAD internally, and is solely responsible for issuing `control.interrupt`. This is the path illustrated in the diagram below.
+> - **Platform ASR** — The platform detects VAD and sends `input.voice.start` to the developer. The platform may also auto-interrupt based on its own VAD policy.
+> - **Developer ASR / Omni** — The developer receives raw audio Binary Frames (Scenario 2B), runs VAD internally, and sends `input.voice.start` to the platform. The platform automatically clears the RTC buffer upon receiving `input.voice.start`. This is the path illustrated in the diagram below.
 
 ```mermaid
 sequenceDiagram
@@ -405,26 +405,27 @@ sequenceDiagram
     rect rgb(240, 248, 255)
         Note right of AppServer: [Text Hard Interrupt]
         AppServer->>Task: 2. cancelCurrentResponse() (terminate old task)
-        AppServer->>Avatar: 3. control.interrupt (flush RTC buffer)
     end
 
-    AppServer->>Task: 4. processTextInput (start new task)
-    Task-->>Avatar: 5. Push new reply text/audio
-    Avatar-->>User: 6. Render new reply
+    AppServer->>Task: 3. processTextInput (start new task)
+    Task-->>Avatar: 4. Push new reply text/audio
+    Avatar-->>User: 5. Render new reply
 
     Note over User, Avatar: Case 2: Avatar is speaking, user starts speaking (Developer ASR / Omni path)
-    Avatar->>AppServer: 7. Binary Frames (continuous raw audio forwarded by platform)
+    Avatar->>AppServer: 6. Binary Frames (continuous raw audio forwarded by platform)
 
-    AppServer->>AppServer: 8. asrService.detectVoiceActivity (VAD triggered internally)
+    AppServer->>AppServer: 7. asrService.detectVoiceActivity (VAD triggered internally)
 
     rect rgb(255, 240, 245)
         Note right of AppServer: [Voice Real-time Interrupt]
-        AppServer->>Task: 9. cancelCurrentResponse() (cut off at the source)
-        AppServer->>Avatar: 10. control.interrupt (issue command)
+        AppServer->>Task: 8. cancelCurrentResponse() (cut off at the source)
+        AppServer->>Avatar: 9. input.voice.start (platform auto-clears RTC buffer)
     end
 
-    AppServer->>AppServer: 11. Continue ASR recognition & business logic
-    Note over User, Avatar: Repeat steps 4-6 for new reply flow
+    AppServer->>AppServer: 10. Continue ASR recognition (accumulate audio + send input.asr.partial)
+    AppServer->>Avatar: 11. input.voice.finish (VAD detects speech end)
+    AppServer->>Avatar: 12. input.asr.final (recognition complete)
+    Note over User, Avatar: Repeat steps 3-5 for new reply flow
 ```
 
 ---
