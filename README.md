@@ -110,13 +110,23 @@ await client.send_binary(image_bytes)
 
 ## Running the Reference Server
 
+The reference server demonstrates **Outbound mode** — your server exposes a WebSocket endpoint that the platform connects to.
+
 ```bash
 uvicorn liveavatar_channel_server_example.main:app --host 0.0.0.0 --port 8080
 ```
 
-The server exposes `ws://localhost:8080/avatar/ws` and echoes every `input.text` message back as a word-by-word streaming response.
+**Endpoints:**
 
-## Running the Client Simulator
+| Endpoint | Purpose |
+|---|---|
+| `GET /avatar/ws` | Outbound mode WS endpoint — the platform connects here after you call `POST /session/start` |
+| `POST /avatar/session/start` | Mock REST API — simulates the platform's session initiation endpoint for local testing |
+| `GET /avatar/platform-ws/{session_id}` | Platform simulator WS — sends `session.init` / `input.text` so the Inbound client can test locally |
+
+## Running the Inbound Client Example
+
+The client simulator demonstrates **Inbound mode** — your server calls `POST /session/start` to get an `agentWsUrl`, then connects to the platform as a WebSocket client.
 
 In a second terminal (while the server is running):
 
@@ -124,7 +134,38 @@ In a second terminal (while the server is running):
 python -m liveavatar_channel_sdk.example.live_avatar_service_simulator
 ```
 
-The simulator connects to the reference server and sends a scripted sequence of protocol events.
+**Flow:** REST call → get `agentWsUrl` → connect → receive `session.init` → send `session.ready` → receive `input.text` → send `response.chunk/done`.
+
+Configuration via environment variables:
+
+```bash
+PLATFORM_URL=http://localhost:8080 \
+API_KEY=sk-local-test-key \
+AVATAR_ID=default-avatar \
+python -m liveavatar_channel_sdk.example.live_avatar_service_simulator
+```
+
+## Integration Flow
+
+Both Inbound and Outbound modes use the **same protocol**. The only difference is who initiates the WebSocket connection.
+
+### Outbound Mode (platform connects to you)
+
+1. Register your `wsEndpoint` in the Live Avatar console (one-time config).
+2. Call `POST /session/start` with your API Key.
+3. The platform connects to your registered `wsEndpoint`.
+4. Platform sends `session.init` — reply with `session.ready`.
+5. Exchange protocol events over the WebSocket.
+6. Platform returns `{sessionId, userToken, sfuUrl}` via the HTTP response (deliver `userToken` + `sfuUrl` to your frontend).
+
+### Inbound Mode (you connect to platform)
+
+1. Enable Inbound mode in the Live Avatar console (one-time).
+2. Call `POST /session/start` with your API Key — response includes `agentWsUrl`.
+3. Connect to `agentWsUrl` as a WebSocket client.
+4. Platform sends `session.init` — reply with `session.ready`.
+5. Deliver `userToken` + `sfuUrl` from the response to your frontend.
+6. Exchange protocol events over the WebSocket.
 
 ## Running Tests
 
@@ -177,18 +218,37 @@ Examples: `session.init`, `input.text`, `response.chunk`, `control.interrupt`
 
 ### Common Events
 
-| Event | Direction | Description |
-|---|---|---|
-| `session.init` | avatar → developer | Open session |
-| `session.ready` | developer → avatar | Acknowledge session |
-| `scene.ready` | JS SDK → avatar (LiveKit DC only) | Frontend scene is ready for conversation |
-| `input.text` | avatar → developer | User typed text |
-| `response.chunk` | developer → avatar | Streaming text chunk (with `seq`) |
-| `response.done` | developer → avatar | End of streaming response |
-| `control.interrupt` | developer → avatar | Proactive interrupt for business-logic-driven stops; **not** needed for input-driven flows (platform auto-clears buffer on `input.text` / `input.voice.start`); only sent by the party that owns ASR |
-| `system.idleTrigger` | avatar → developer | Avatar has been idle |
+**Platform → Developer** (developer receives):
 
-> **Scenario 2B — Developer-provided ASR / Omni:** when ASR runs on your side, the platform forwards raw audio as binary frames only and the developer sends `input.voice.*` / `input.asr.*` events **back to the platform** (same protocol, reversed direction). Use `client.send_input_voice_start` / `send_input_voice_finish` / `send_input_asr_partial` / `send_input_asr_final` for this path.
+| Event | Description |
+|---|---|
+| `session.init` | Open session (sent immediately after WS connects) |
+| `session.state` | State sync (`IDLE` / `LISTENING` / `THINKING` / `SPEAKING` / …) |
+| `session.closing` | Connection about to close (e.g. timeout) |
+| `scene.ready` | JS SDK → avatar, LiveKit DataChannel only |
+| `input.text` | User typed text (forwarded from frontend) |
+| `input.asr.partial` | Streaming ASR result (`final: false`) — **sent by whoever owns ASR** |
+| `input.asr.final` | Final ASR result — **sent by whoever owns ASR** |
+| `input.voice.start` | Voice activity start — **sent by whoever owns ASR** |
+| `input.voice.finish` | Voice activity end — **sent by whoever owns ASR** |
+| `response.audio.start` | TTS audio starting — **sent by whoever owns TTS** |
+| `response.audio.finish` | TTS audio finished — **sent by whoever owns TTS** |
+| `system.idleTrigger` | Avatar has been idle (`reason`, `idle_time_ms`) |
+
+**Developer → Platform** (developer sends):
+
+| Event | Description |
+|---|---|
+| `session.ready` | Handshake response — **must** send after `session.init` |
+| `response.start` | Optional: configure TTS params (`speed`, `volume`, `mood`) |
+| `response.chunk` | Streaming text chunk with `seq` and `timestamp` |
+| `response.done` | End of streaming response |
+| `response.cancel` | Cancel an in-progress response stream |
+| `response.audio.promptStart` | Sent before idle-prompt audio starts |
+| `response.audio.promptFinish` | Sent after idle-prompt audio finishes |
+| `control.interrupt` | Programmatic interrupt for business-logic-driven stops; **not** needed for input-driven flows (platform auto-clears on `input.text` / `input.voice.start`) |
+| `system.prompt` | Push idle-wakeup text for TTS playback |
+| `error` | Error report with `code` and `message` |
 
 For the full protocol reference see [`PROTOCOL.md`](PROTOCOL.md).
 

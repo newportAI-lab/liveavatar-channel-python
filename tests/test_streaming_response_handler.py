@@ -1,5 +1,4 @@
 import pytest
-import asyncio
 from liveavatar_channel_sdk.streaming_response_handler import StreamingResponseHandler
 
 @pytest.mark.asyncio

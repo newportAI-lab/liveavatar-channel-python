@@ -1,7 +1,6 @@
 from __future__ import annotations
 from typing import Callable, Awaitable, Optional
 from sortedcontainers import SortedDict
-import asyncio
 
 
 class StreamingResponseHandler:

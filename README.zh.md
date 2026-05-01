@@ -110,13 +110,23 @@ await client.send_binary(image_bytes)
 
 ## 启动参考服务器
 
+参考服务器演示**出站模式（Outbound）**——你的服务器暴露 WebSocket 端点，平台主动连接。
+
 ```bash
 uvicorn liveavatar_channel_server_example.main:app --host 0.0.0.0 --port 8080
 ```
 
-服务器在 `ws://localhost:8080/avatar/ws` 上监听，将每条 `input.text` 消息逐词以流式方式 echo 回去。
+**端点：**
 
-## 启动客户端模拟器
+| 端点 | 用途 |
+|---|---|
+| `GET /avatar/ws` | 出站模式 WS 端点 —— 你调用 `POST /session/start` 后，平台连接到此 |
+| `POST /avatar/session/start` | 模拟 REST API —— 模拟平台的会话创建接口，用于本地测试 |
+| `GET /avatar/platform-ws/{session_id}` | 平台模拟器 WS —— 发送 `session.init` / `input.text`，供入站模式客户端本地测试 |
+
+## 启动入站模式客户端示例
+
+客户端模拟器演示**入站模式（Inbound）**——你的服务器调用 `POST /session/start` 获取 `agentWsUrl`，然后作为 WebSocket 客户端连接到平台。
 
 在另一个终端（服务器运行时）：
 
@@ -124,7 +134,38 @@ uvicorn liveavatar_channel_server_example.main:app --host 0.0.0.0 --port 8080
 python -m liveavatar_channel_sdk.example.live_avatar_service_simulator
 ```
 
-模拟器连接到参考服务器并发送一系列脚本化的协议事件。
+**流程：** REST 调用 → 获取 `agentWsUrl` → 连接 → 接收 `session.init` → 发送 `session.ready` → 接收 `input.text` → 发送 `response.chunk/done`。
+
+通过环境变量配置：
+
+```bash
+PLATFORM_URL=http://localhost:8080 \
+API_KEY=sk-local-test-key \
+AVATAR_ID=default-avatar \
+python -m liveavatar_channel_sdk.example.live_avatar_service_simulator
+```
+
+## 集成流程
+
+入站和出站模式使用**完全相同的协议**，唯一区别在于谁发起 WebSocket 连接。
+
+### 出站模式（平台连接你）
+
+1. 在 Live Avatar 控制台注册你的 `wsEndpoint`（一次性配置）。
+2. 使用 API Key 调用 `POST /session/start`。
+3. 平台连接到你的 `wsEndpoint`。
+4. 平台发送 `session.init` —— 回复 `session.ready`。
+5. 通过 WebSocket 交换协议事件。
+6. 平台通过 HTTP 响应返回 `{sessionId, userToken, sfuUrl}`（将 `userToken` + `sfuUrl` 传递给前端）。
+
+### 入站模式（你连接平台）
+
+1. 在 Live Avatar 控制台启用入站模式（一次性）。
+2. 使用 API Key 调用 `POST /session/start` —— 响应中包含 `agentWsUrl`。
+3. 作为 WebSocket 客户端连接到 `agentWsUrl`。
+4. 平台发送 `session.init` —— 回复 `session.ready`。
+5. 将响应中的 `userToken` + `sfuUrl` 传递给前端。
+6. 通过 WebSocket 交换协议事件。
 
 ## 运行测试
 
@@ -177,18 +218,37 @@ pytest -s -v
 
 ### 常用事件
 
-| 事件 | 方向 | 说明 |
-|---|---|---|
-| `session.init` | 数字人 → 开发者 | 开启会话 |
-| `session.ready` | 开发者 → 数字人 | 确认会话就绪 |
-| `scene.ready` | JS SDK → 数字人（仅 LiveKit 数据通道） | 前端场景就绪，可开始对话 |
-| `input.text` | 数字人 → 开发者 | 用户文字输入 |
-| `response.chunk` | 开发者 → 数字人 | 流式文本片段（含 `seq`） |
-| `response.done` | 开发者 → 数字人 | 流式响应结束 |
-| `control.interrupt` | 开发者 → 数字人 | 主动打断（业务逻辑驱动）；输入驱动场景**无需**发送（平台在处理 `input.text` 或收到 `input.voice.start` 时自动清空缓冲区）；仅由 ASR 的提供方发出 |
-| `system.idleTrigger` | 数字人 → 开发者 | 数字人已空闲 |
+**平台 → 开发者**（开发者接收）：
 
-> **场景 2B — 开发者自提供 ASR / Omni：** 当 ASR 由开发者承担时，平台仅以二进制帧转发原始音频，开发者需将 `input.voice.*` 与 `input.asr.*` 事件**回传给平台**（协议相同，方向相反）。可使用 `client.send_input_voice_start` / `send_input_voice_finish` / `send_input_asr_partial` / `send_input_asr_final` 进行发送。
+| 事件 | 说明 |
+|---|---|
+| `session.init` | 开启会话（WS 连接后立即发送） |
+| `session.state` | 状态同步（`IDLE` / `LISTENING` / `THINKING` / `SPEAKING` / …） |
+| `session.closing` | 连接即将关闭（例如超时） |
+| `scene.ready` | JS SDK → 数字人，仅 LiveKit 数据通道 |
+| `input.text` | 用户文字输入（从前端转发） |
+| `input.asr.partial` | 流式 ASR 结果（`final: false`）——**由 ASR 提供方发送** |
+| `input.asr.final` | 最终 ASR 结果 ——**由 ASR 提供方发送** |
+| `input.voice.start` | 语音活动开始 ——**由 ASR 提供方发送** |
+| `input.voice.finish` | 语音活动结束 ——**由 ASR 提供方发送** |
+| `response.audio.start` | TTS 音频开始 ——**由 TTS 提供方发送** |
+| `response.audio.finish` | TTS 音频结束 ——**由 TTS 提供方发送** |
+| `system.idleTrigger` | 数字人已空闲（`reason`、`idle_time_ms`） |
+
+**开发者 → 平台**（开发者发送）：
+
+| 事件 | 说明 |
+|---|---|
+| `session.ready` | 握手应答 —— 收到 `session.init` 后**必须**发送 |
+| `response.start` | 可选：配置 TTS 参数（`speed`、`volume`、`mood`） |
+| `response.chunk` | 流式文本片段（含 `seq` 和 `timestamp`） |
+| `response.done` | 流式响应结束 |
+| `response.cancel` | 取消进行中的响应流 |
+| `response.audio.promptStart` | 空闲提示音频开始前发送 |
+| `response.audio.promptFinish` | 空闲提示音频结束后发送 |
+| `control.interrupt` | 程序化打断（业务逻辑驱动）；输入驱动场景**无需**发送（平台在 `input.text` / `input.voice.start` 时自动清空） |
+| `system.prompt` | 推送空闲唤醒文本，触发 TTS 播放 |
+| `error` | 错误报告（`code`、`message`） |
 
 完整协议参考请查阅 [`PROTOCOL.md`](PROTOCOL.md)（或 [`PROTOCOL.zh.md`](PROTOCOL.zh.md)）。
 
