@@ -198,7 +198,7 @@ class AvatarWebSocketClient:
     # ------------------------------------------------------------------
 
     async def _connect_once(self) -> None:
-        self._ws = await websockets.connect(self._url)
+        self._ws = await websockets.connect(self._url, ping_interval=5)
         if self._backoff is not None:
             self._backoff.reset()
         self._recv_task = asyncio.ensure_future(self._recv_loop())
