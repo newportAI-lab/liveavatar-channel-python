@@ -296,7 +296,7 @@ Examples: `session.init`, `input.text`, `response.chunk`, `control.interrupt`
 
 ### Common Events
 
-**Platform → Developer** (developer receives):
+**Platform → Developer** (developer receives via listener callbacks):
 
 | Event | Description |
 |---|---|
@@ -305,30 +305,33 @@ Examples: `session.init`, `input.text`, `response.chunk`, `control.interrupt`
 | `session.closing` | Connection about to close (e.g. timeout) |
 | `scene.ready` | JS SDK → avatar, LiveKit DataChannel only |
 | `input.text` | User typed text (forwarded from frontend) |
-| `input.asr.partial` | Streaming ASR result (`final: false`) — **sent by whoever owns ASR** |
-| `input.asr.final` | Final ASR result — **sent by whoever owns ASR** |
-| `input.voice.start` | Voice activity start — **sent by whoever owns ASR** |
-| `input.voice.finish` | Voice activity end — **sent by whoever owns ASR** |
-| `response.audio.start` | TTS audio starting — **sent by whoever owns TTS** |
-| `response.audio.finish` | TTS audio finished — **sent by whoever owns TTS** |
+| `response.audio.start` | TTS audio starting — **sent by platform when platform provides TTS** |
+| `response.audio.finish` | TTS audio finished — **sent by platform when platform provides TTS** |
 | `system.idleTrigger` | Avatar has been idle (`reason`, `idle_time_ms`) |
 
-**Developer → Platform** (developer sends):
+**Developer → Platform** (developer sends via `client.send_*()` or adapter):
 
 | Event | Description |
 |---|---|
 | `session.ready` | Handshake response — **must** send after `session.init` |
 | `session.stop` | Request to end the current session |
-| `session.closing` | Notify the remote party that this side is about to close |
+| `input.asr.partial` | Streaming ASR result (`final: false`) — **when developer provides ASR (Omni mode)** |
+| `input.asr.final` | Final ASR result — **when developer provides ASR (Omni mode)** |
+| `input.voice.start` | Voice activity start — **when developer provides ASR (Omni mode)** |
+| `input.voice.finish` | Voice activity end — **when developer provides ASR (Omni mode)** |
 | `response.start` | Optional: configure TTS params (`speed`, `volume`, `mood`) |
 | `response.chunk` | Streaming text chunk with `seq` and `timestamp` |
 | `response.done` | End of streaming response |
 | `response.cancel` | Cancel an in-progress response stream |
+| `response.audio.start` | TTS audio starting — **when developer provides TTS** |
+| `response.audio.finish` | TTS audio finished — **when developer provides TTS** |
 | `response.audio.promptStart` | Sent before idle-prompt audio starts |
 | `response.audio.promptFinish` | Sent after idle-prompt audio finishes |
 | `control.interrupt` | Programmatic interrupt for business-logic-driven stops; **not** needed for input-driven flows (platform auto-clears on `input.text` / `input.voice.start`) |
 | `system.prompt` | Push idle-wakeup text for TTS playback |
 | `error` | Error report with `code` and `message` |
+
+> **Bidirectional events:** `input.asr.*` / `input.voice.*` are sent by whoever provides ASR (developer in Omni mode, platform otherwise). `response.audio.*` events are sent by whoever provides TTS (platform by default, developer when using custom TTS). The SDK provides both listener callbacks (receive) and send helpers (transmit) for these events.
 
 For the full protocol reference see [`PROTOCOL.md`](PROTOCOL.md).
 

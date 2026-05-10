@@ -99,6 +99,22 @@ class MessageSender(ABC):
     async def send_response_cancel(self, response_id: str) -> None:
         await self.send_json(MessageBuilder.response_cancel(response_id))
 
+    # -- response audio (Developer provides TTS) --------------------------
+
+    async def send_response_audio_start(
+        self, request_id: str, response_id: str
+    ) -> None:
+        await self.send_json(
+            MessageBuilder.response_audio_start(request_id, response_id)
+        )
+
+    async def send_response_audio_finish(
+        self, request_id: str, response_id: str
+    ) -> None:
+        await self.send_json(
+            MessageBuilder.response_audio_finish(request_id, response_id)
+        )
+
     # -- control ----------------------------------------------------------
 
     async def send_control_interrupt(

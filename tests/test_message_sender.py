@@ -110,6 +110,23 @@ async def test_send_response_cancel(sender: StubSender):
 
 
 @pytest.mark.asyncio
+@pytest.mark.asyncio
+async def test_send_response_audio_start(sender: StubSender):
+    await sender.send_response_audio_start("req-1", "resp-1")
+    assert sender.sent_json[0]["event"] == EventType.RESPONSE_AUDIO_START
+    assert sender.sent_json[0]["requestId"] == "req-1"
+    assert sender.sent_json[0]["responseId"] == "resp-1"
+
+
+@pytest.mark.asyncio
+async def test_send_response_audio_finish(sender: StubSender):
+    await sender.send_response_audio_finish("req-1", "resp-1")
+    assert sender.sent_json[0]["event"] == EventType.RESPONSE_AUDIO_FINISH
+    assert sender.sent_json[0]["requestId"] == "req-1"
+    assert sender.sent_json[0]["responseId"] == "resp-1"
+
+
+@pytest.mark.asyncio
 async def test_send_control_interrupt_without_request_id(sender: StubSender):
     await sender.send_control_interrupt()
     assert sender.sent_json[0]["event"] == EventType.CONTROL_INTERRUPT

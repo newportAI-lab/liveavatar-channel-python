@@ -296,7 +296,7 @@ pytest -s -v
 
 ### 常用事件
 
-**平台 → 开发者**（开发者接收）：
+**平台 → 开发者**（开发者通过监听器回调接收）：
 
 | 事件 | 说明 |
 |---|---|
@@ -305,30 +305,33 @@ pytest -s -v
 | `session.closing` | 连接即将关闭（例如超时） |
 | `scene.ready` | JS SDK → 数字人，仅 LiveKit 数据通道 |
 | `input.text` | 用户文字输入（从前端转发） |
-| `input.asr.partial` | 流式 ASR 结果（`final: false`）——**由 ASR 提供方发送** |
-| `input.asr.final` | 最终 ASR 结果 ——**由 ASR 提供方发送** |
-| `input.voice.start` | 语音活动开始 ——**由 ASR 提供方发送** |
-| `input.voice.finish` | 语音活动结束 ——**由 ASR 提供方发送** |
-| `response.audio.start` | TTS 音频开始 ——**由 TTS 提供方发送** |
-| `response.audio.finish` | TTS 音频结束 ——**由 TTS 提供方发送** |
+| `response.audio.start` | TTS 音频开始 ——**平台提供 TTS 时由平台发送** |
+| `response.audio.finish` | TTS 音频结束 ——**平台提供 TTS 时由平台发送** |
 | `system.idleTrigger` | 数字人已空闲（`reason`、`idle_time_ms`） |
 
-**开发者 → 平台**（开发者发送）：
+**开发者 → 平台**（开发者通过 `client.send_*()` 或适配器发送）：
 
 | 事件 | 说明 |
 |---|---|
 | `session.ready` | 握手应答 —— 收到 `session.init` 后**必须**发送 |
 | `session.stop` | 请求结束当前会话 |
-| `session.closing` | 通知对方本端即将关闭 |
+| `input.asr.partial` | 流式 ASR 结果（`final: false`）——**开发者提供 ASR 时发送（Omni 模式）** |
+| `input.asr.final` | 最终 ASR 结果 ——**开发者提供 ASR 时发送（Omni 模式）** |
+| `input.voice.start` | 语音活动开始 ——**开发者提供 ASR 时发送（Omni 模式）** |
+| `input.voice.finish` | 语音活动结束 ——**开发者提供 ASR 时发送（Omni 模式）** |
 | `response.start` | 可选：配置 TTS 参数（`speed`、`volume`、`mood`） |
 | `response.chunk` | 流式文本片段（含 `seq` 和 `timestamp`） |
 | `response.done` | 流式响应结束 |
 | `response.cancel` | 取消进行中的响应流 |
+| `response.audio.start` | TTS 音频开始 ——**开发者提供 TTS 时发送** |
+| `response.audio.finish` | TTS 音频结束 ——**开发者提供 TTS 时发送** |
 | `response.audio.promptStart` | 空闲提示音频开始前发送 |
 | `response.audio.promptFinish` | 空闲提示音频结束后发送 |
 | `control.interrupt` | 程序化打断（业务逻辑驱动）；输入驱动场景**无需**发送（平台在 `input.text` / `input.voice.start` 时自动清空） |
 | `system.prompt` | 推送空闲唤醒文本，触发 TTS 播放 |
 | `error` | 错误报告（`code`、`message`） |
+
+> **双向事件：** `input.asr.*` / `input.voice.*` 由 ASR 提供方发送（Omni 模式下由开发者发送，否则由平台发送）。`response.audio.*` 由 TTS 提供方发送（默认由平台发送，使用自定义 TTS 时由开发者发送）。SDK 同时提供这些事件的监听器回调（接收）和发送辅助方法（发送）。
 
 完整协议参考请查阅 [`PROTOCOL.md`](PROTOCOL.md)（或 [`PROTOCOL.zh.md`](PROTOCOL.zh.md)）。
 
