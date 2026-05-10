@@ -6,7 +6,6 @@ import json
 
 import httpx
 import pytest
-from httpx import HTTPStatusError
 
 from liveavatar_channel_sdk.session_client import SessionClient
 from liveavatar_channel_sdk.session_models import ErrorCode, SessionStartError, SessionStartResult
