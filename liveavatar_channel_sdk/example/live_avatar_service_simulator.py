@@ -36,18 +36,16 @@ Configuration via environment variables::
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 import time
 import uuid
 from typing import Optional
-from urllib.request import Request, urlopen
-
 from liveavatar_channel_sdk.audio_frame import AudioFrame
 from liveavatar_channel_sdk.avatar_channel_listener_adapter import AvatarChannelListenerAdapter
 from liveavatar_channel_sdk.avatar_websocket_client import AvatarWebSocketClient
 from liveavatar_channel_sdk.image_frame import ImageFrame
+from liveavatar_channel_sdk.session_client import SessionClient
 from liveavatar_channel_sdk.session_state import SessionState
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -60,44 +58,6 @@ logger = logging.getLogger(__name__)
 PLATFORM_URL = os.environ.get("PLATFORM_URL", "http://localhost:8080")
 API_KEY = os.environ.get("API_KEY", "sk-local-test-key")
 AVATAR_ID = os.environ.get("AVATAR_ID", "default-avatar")
-
-
-# ---------------------------------------------------------------------------
-# REST API — call POST /session/start
-# ---------------------------------------------------------------------------
-
-
-def _call_session_start_rest() -> dict:
-    """Call the platform's ``POST /session/start`` and return ``data`` dict.
-
-    Uses stdlib ``urllib`` to avoid extra dependencies.  In production you
-    would typically use ``httpx`` or ``aiohttp`` for async HTTP.
-    """
-    url = f"{PLATFORM_URL}/avatar/session/start"
-    body = json.dumps({"avatarId": AVATAR_ID}).encode()
-    req = Request(
-        url,
-        data=body,
-        headers={
-            "Authorization": f"Bearer {API_KEY}",
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
-    logger.info("REST → POST %s  avatarId=%s", url, AVATAR_ID)
-    with urlopen(req, timeout=10) as resp:
-        payload = json.loads(resp.read().decode())
-
-    if payload.get("code") != 0:
-        raise RuntimeError(f"session/start failed: {payload}")
-
-    data = payload["data"]
-    logger.info(
-        "REST ← sessionId=%s  agentWsUrl=%s",
-        data["sessionId"],
-        data["agentWsUrl"],
-    )
-    return data
 
 
 # ---------------------------------------------------------------------------
@@ -255,13 +215,26 @@ class InboundDeveloperListener(AvatarChannelListenerAdapter):
 
 
 async def main() -> None:
-    # 1. Call REST API to start a session
-    data = await asyncio.to_thread(_call_session_start_rest)
-    agent_ws_url = data["agentWsUrl"]
-    session_id = data["sessionId"]
+    # 1. Call REST API to start a session using SessionClient
+    session_client = SessionClient(
+        api_key=API_KEY,
+        base_url=PLATFORM_URL,
+    )
+    result = await session_client.start(avatar_id=AVATAR_ID)
+    agent_ws_url = result.agent_ws_url
+    session_id = result.session_id
+    await session_client.close()
 
-    # 2. Build the listener first, then the client — listener needs a client
-    #    reference for its send helpers, so we inject it after construction.
+    if agent_ws_url is None:
+        raise RuntimeError(
+            "agentWsUrl not present in /session/start response — "
+            "is Inbound mode enabled for this avatar?"
+        )
+
+    logger.info("REST ← sessionId=%s  agentWsUrl=%s", session_id, agent_ws_url)
+
+    # 2. Build the listener and client.  The listener needs a client reference
+    #    for its send helpers, so we create it via __new__ and inject after.
     listener = InboundDeveloperListener.__new__(InboundDeveloperListener)
     client = AvatarWebSocketClient(agent_ws_url, listener)
     listener.__init__(client)
