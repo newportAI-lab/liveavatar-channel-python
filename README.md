@@ -9,6 +9,7 @@ A Python SDK for the Live Avatar WebSocket protocol, supporting text, audio, and
 - Python 3.9+
 - `websockets >= 12`
 - `sortedcontainers`
+- `httpx >= 0.25`
 
 Optional (reference server only):
 
@@ -108,6 +109,63 @@ image_bytes = (
 await client.send_binary(image_bytes)
 ```
 
+### 4. Manage sessions via REST API
+
+```python
+from liveavatar_channel_sdk import SessionClient
+
+client = SessionClient(
+    api_key="sk-...",
+    # base_url defaults to https://facemarket.ai/vih/dispatcher
+    sandbox=True,  # True = adds X-Env-Sandbox header for testing
+)
+
+# Start a new session
+result = await client.start(avatar_id="avatar-123")
+print(result.session_id, result.agent_ws_url, result.user_token)
+
+# Reconnect to an existing session
+result = await client.start(avatar_id="avatar-123", session_id="sess-old")
+
+# Stop a session
+await client.stop(session_id=result.session_id)
+
+# Release resources
+await client.close()
+```
+
+### 5. Outbound mode server (FastAPI)
+
+```python
+from fastapi import FastAPI, WebSocket
+from liveavatar_channel_sdk import (
+    AvatarChannelListenerAdapter, WebSocketAdapter, dispatch_text_event
+)
+
+app = FastAPI()
+
+class MyOutboundListener(AvatarChannelListenerAdapter):
+    def __init__(self, adapter: WebSocketAdapter):
+        self._adapter = adapter
+
+    async def on_session_init(self, session_id, user_id):
+        await self._adapter.send_session_ready()
+
+    async def on_input_text(self, request_id, text):
+        # Stream response back through the adapter
+        await self._adapter.send_response_start(request_id, "resp-1")
+        await self._adapter.send_response_chunk(request_id, "resp-1", 0, 0, text)
+        await self._adapter.send_response_done(request_id, "resp-1")
+
+@app.websocket("/avatar/ws")
+async def outbound_ws(ws: WebSocket):
+    await ws.accept()
+    adapter = WebSocketAdapter(ws)
+    listener = MyOutboundListener(adapter)
+    async for raw in ws.iter_text():
+        await dispatch_text_event(raw, listener)
+```
+
 ## Running the Reference Server
 
 The reference server demonstrates **Outbound mode** — your server exposes a WebSocket endpoint that the platform connects to.
@@ -152,20 +210,34 @@ Both Inbound and Outbound modes use the **same protocol**. The only difference i
 ### Outbound Mode (platform connects to you)
 
 1. Register your `wsEndpoint` in the Live Avatar console (one-time config).
-2. Call `POST /session/start` with your API Key.
+2. Call `POST /session/start` with your API Key via `SessionClient`:
+   ```python
+   from liveavatar_channel_sdk import SessionClient
+   client = SessionClient(api_key="sk-...")
+   result = await client.start(avatar_id="avatar-123")
+   ```
 3. The platform connects to your registered `wsEndpoint`.
-4. Platform sends `session.init` — reply with `session.ready`.
+4. Platform sends `session.init` — reply with `session.ready` via your listener.
 5. Exchange protocol events over the WebSocket.
-6. Platform returns `{sessionId, userToken, sfuUrl}` via the HTTP response (deliver `userToken` + `sfuUrl` to your frontend).
+6. Platform returns `{sessionId, userToken, sfuUrl}` — deliver `userToken` + `sfuUrl` to your frontend.
 
 ### Inbound Mode (you connect to platform)
 
 1. Enable Inbound mode in the Live Avatar console (one-time).
-2. Call `POST /session/start` with your API Key — response includes `agentWsUrl`.
-3. Connect to `agentWsUrl` as a WebSocket client.
-4. Platform sends `session.init` — reply with `session.ready`.
-5. Deliver `userToken` + `sfuUrl` from the response to your frontend.
-6. Exchange protocol events over the WebSocket.
+2. Call `POST /session/start` with your API Key — response includes `agentWsUrl`:
+   ```python
+   from liveavatar_channel_sdk import SessionClient, AvatarWebSocketClient
+   
+   client = SessionClient(api_key="sk-...")
+   result = await client.start(avatar_id="avatar-123")
+   
+   listener = MyListener()
+   ws = AvatarWebSocketClient(result.agent_ws_url, listener)
+   await ws.connect()
+   ```
+3. Platform sends `session.init` — reply with `session.ready`.
+4. Deliver `userToken` + `sfuUrl` from the response to your frontend.
+5. Exchange protocol events over the WebSocket.
 
 ## Running Tests
 
@@ -205,6 +277,12 @@ Transport    (AvatarWebSocketClient via websockets)
 | `ImageFrameBuilder` | Fluent builder for 12-byte-header binary image frames |
 | `ExponentialBackoffStrategy` | Optional auto-reconnect (1 s → 60 s); disabled by default |
 | `SessionManager` | Server-side async-safe session registry |
+| `SessionClient` | Async REST client for `POST /v1/session/start` and `/v1/session/stop` |
+| `SessionStartResult` | Typed response from `/session/start` (session_id, tokens, URLs) |
+| `SessionStartError` | Structured exception for platform error codes (40001–40007) |
+| `MessageSender` | ABC mixin — implement `send_json`/`send_binary` to get all `send_*()` helpers |
+| `WebSocketAdapter` | Wraps a server-side `fastapi.WebSocket` as a `MessageSender` for Outbound mode |
+| `dispatch_text_event` | Shared function routing every protocol text event to listener callbacks |
 
 ## Protocol Overview
 
@@ -240,6 +318,8 @@ Examples: `session.init`, `input.text`, `response.chunk`, `control.interrupt`
 | Event | Description |
 |---|---|
 | `session.ready` | Handshake response — **must** send after `session.init` |
+| `session.stop` | Request to end the current session |
+| `session.closing` | Notify the remote party that this side is about to close |
 | `response.start` | Optional: configure TTS params (`speed`, `volume`, `mood`) |
 | `response.chunk` | Streaming text chunk with `seq` and `timestamp` |
 | `response.done` | End of streaming response |

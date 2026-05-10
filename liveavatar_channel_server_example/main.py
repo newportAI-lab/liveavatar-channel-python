@@ -37,13 +37,15 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 from starlette.requests import Request
 
-from liveavatar_channel_sdk.avatar_channel_listener_adapter import AvatarChannelListenerAdapter
 from liveavatar_channel_sdk.audio_frame import AudioFrame
+from liveavatar_channel_sdk.avatar_channel_listener_adapter import AvatarChannelListenerAdapter
+from liveavatar_channel_sdk.dispatch import dispatch_text_event
 from liveavatar_channel_sdk.event_type import EventType
 from liveavatar_channel_sdk.image_frame import ImageFrame
 from liveavatar_channel_sdk.message_builder import MessageBuilder
 from liveavatar_channel_sdk.session_manager import SessionManager
 from liveavatar_channel_sdk.session_state import SessionState
+from liveavatar_channel_sdk.websocket_adapter import WebSocketAdapter
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("liveavatar.example")
@@ -88,22 +90,19 @@ class OutboundDeveloperListener(AvatarChannelListenerAdapter):
       ``-->``  Developer → Platform (sent via *send* helpers on the WS)
     """
 
-    def __init__(self, ws: WebSocket) -> None:
-        self._ws = ws
+    def __init__(self, adapter: WebSocketAdapter) -> None:
+        self._adapter = adapter
         self._session_id: Optional[str] = None
         # Track active response streams so we can cancel them on interrupt.
         self._active_tasks: dict[str, asyncio.Task] = {}
-
-    async def _send(self, msg: dict) -> None:
-        await self._ws.send_text(json.dumps(msg))
 
     # ---- session events ---------------------------------------------------
 
     async def on_session_init(self, session_id: str, user_id: str) -> None:
         self._session_id = session_id
         logger.info("[%s] <-- session.init  user_id=%s", session_id, user_id)
-        await session_manager.add_session(session_id, self._ws)
-        await self._send(MessageBuilder.session_ready())
+        await session_manager.add_session(session_id, self._adapter._ws)
+        await self._adapter.send_session_ready()
         logger.info("[%s] --> session.ready", session_id)
 
     async def on_session_ready(self) -> None:
@@ -221,16 +220,16 @@ class OutboundDeveloperListener(AvatarChannelListenerAdapter):
         if not words:
             words = [text]
 
-        await self._send(MessageBuilder.response_start(request_id, response_id))
+        await self._adapter.send_response_start(request_id, response_id)
         logger.info("[%s] --> response.start  response_id=%s", self._session_id, response_id)
 
         for seq, word in enumerate(words):
             ts = int(time.monotonic() * 1000) & 0xFFFFF
-            await self._send(MessageBuilder.response_chunk(request_id, response_id, seq, ts, word + " "))
+            await self._adapter.send_response_chunk(request_id, response_id, seq, ts, word + " ")
             logger.info("[%s] --> response.chunk  response_id=%s  seq=%d", self._session_id, response_id, seq)
             await asyncio.sleep(0.05)
 
-        await self._send(MessageBuilder.response_done(request_id, response_id))
+        await self._adapter.send_response_done(request_id, response_id)
         logger.info("[%s] --> response.done  response_id=%s", self._session_id, response_id)
         self._active_tasks.pop(request_id, None)
 
@@ -288,33 +287,17 @@ async def avatar_outbound_ws(ws: WebSocket) -> None:
     await ws.accept()
     logger.info("Outbound WS connection from %s", ws.client)
 
-    listener = OutboundDeveloperListener(ws)
+    adapter = WebSocketAdapter(ws)
+    listener = OutboundDeveloperListener(adapter)
 
     try:
         async for raw in ws.iter_text():
-            try:
-                msg = json.loads(raw)
-            except json.JSONDecodeError:
-                logger.warning("Non-JSON text message received")
-                continue
-
-            event_type = msg.get("event")
-            data = msg.get("data", {})
-
-            await _dispatch(listener, event_type, msg, data)
-
+            await dispatch_text_event(raw, listener)
     except WebSocketDisconnect:
         logger.info("Outbound WS disconnected")
     finally:
         if listener._session_id:
             await session_manager.remove_session(listener._session_id)
-
-    # Also handle any remaining binary frames
-    try:
-        async for raw in ws.iter_bytes():
-            await _dispatch_binary(listener, raw)
-    except Exception:
-        pass
 
 
 # ---------------------------------------------------------------------------
@@ -413,153 +396,3 @@ async def avatar_platform_simulator_ws(ws: WebSocket, session_id: str) -> None:
         logger.error("[%s] Platform simulator error: %s", session_id, exc)
 
 
-# ---------------------------------------------------------------------------
-# Shared dispatch helpers
-# ---------------------------------------------------------------------------
-
-
-async def _dispatch(
-    listener: OutboundDeveloperListener,
-    event_type: str,
-    msg: dict,
-    data: dict,
-) -> None:
-    """Route a JSON message to the correct listener callback."""
-
-    try:
-        if event_type == EventType.SESSION_INIT:
-            await listener.on_session_init(
-                session_id=data["sessionId"],
-                user_id=data["userId"],
-            )
-
-        elif event_type == EventType.SESSION_READY:
-            await listener.on_session_ready()
-
-        elif event_type == EventType.SESSION_STATE:
-            await listener.on_session_state(
-                state=SessionState(data["state"]),
-                seq=msg["seq"],
-                timestamp=msg["timestamp"],
-            )
-
-        elif event_type == EventType.SESSION_CLOSING:
-            await listener.on_session_closing(reason=data.get("reason"))
-
-        elif event_type == EventType.SCENE_READY:
-            await listener.on_scene_ready()
-
-        elif event_type == EventType.INPUT_TEXT:
-            await listener.on_input_text(
-                request_id=msg["requestId"],
-                text=data["text"],
-            )
-
-        elif event_type == EventType.INPUT_ASR_PARTIAL:
-            await listener.on_asr_partial(
-                request_id=msg["requestId"],
-                text=data["text"],
-                seq=msg["seq"],
-            )
-
-        elif event_type == EventType.INPUT_ASR_FINAL:
-            await listener.on_asr_final(
-                request_id=msg["requestId"],
-                text=data["text"],
-            )
-
-        elif event_type == EventType.INPUT_VOICE_START:
-            await listener.on_voice_start(request_id=msg["requestId"])
-
-        elif event_type == EventType.INPUT_VOICE_FINISH:
-            await listener.on_voice_finish(request_id=msg["requestId"])
-
-        elif event_type == EventType.RESPONSE_START:
-            await listener.on_response_start(
-                request_id=msg["requestId"],
-                response_id=msg["responseId"],
-                audio_config=data.get("audioConfig"),
-            )
-
-        elif event_type == EventType.RESPONSE_CHUNK:
-            await listener.on_chunk_received(
-                request_id=msg["requestId"],
-                response_id=msg["responseId"],
-                seq=msg["seq"],
-                text=data["text"],
-            )
-
-        elif event_type == EventType.RESPONSE_DONE:
-            await listener.on_response_done(
-                request_id=msg["requestId"],
-                response_id=msg["responseId"],
-            )
-
-        elif event_type == EventType.RESPONSE_AUDIO_START:
-            await listener.on_response_audio_start(
-                request_id=msg["requestId"],
-                response_id=msg["responseId"],
-            )
-
-        elif event_type == EventType.RESPONSE_AUDIO_FINISH:
-            await listener.on_response_audio_finish(
-                request_id=msg["requestId"],
-                response_id=msg["responseId"],
-            )
-
-        elif event_type == EventType.RESPONSE_AUDIO_PROMPT_START:
-            await listener.on_response_audio_prompt_start()
-
-        elif event_type == EventType.RESPONSE_AUDIO_PROMPT_FINISH:
-            await listener.on_response_audio_prompt_finish()
-
-        elif event_type == EventType.RESPONSE_CANCEL:
-            await listener.on_response_cancel(response_id=msg["responseId"])
-
-        elif event_type == EventType.CONTROL_INTERRUPT:
-            await listener.on_control_interrupt(request_id=msg.get("requestId"))
-
-        elif event_type == EventType.SYSTEM_IDLE_TRIGGER:
-            await listener.on_idle_trigger(
-                reason=data["reason"],
-                idle_time_ms=data["idleTimeMs"],
-            )
-
-        elif event_type == EventType.SYSTEM_PROMPT:
-            await listener.on_system_prompt(text=data["text"])
-
-        elif event_type == EventType.ERROR:
-            await listener.on_error(
-                request_id=msg.get("requestId"),
-                code=data["code"],
-                message=data["message"],
-            )
-
-        else:
-            logger.warning("Unhandled event type: %s", event_type)
-
-    except Exception as exc:
-        logger.error("Error dispatching '%s': %s", event_type, exc)
-
-
-_AUDIO_TYPE_BITS = 0b01
-_IMAGE_TYPE_BITS = 0b10
-
-
-def _frame_type(data: bytes) -> int:
-    return (data[0] >> 6) & 0x3
-
-
-async def _dispatch_binary(listener: OutboundDeveloperListener, data: bytes) -> None:
-    if len(data) < 1:
-        return
-    ft = _frame_type(data)
-    try:
-        if ft == _AUDIO_TYPE_BITS:
-            await listener.on_audio_frame(AudioFrame.unpack(data))
-        elif ft == _IMAGE_TYPE_BITS:
-            await listener.on_image_frame(ImageFrame.unpack(data))
-        else:
-            logger.warning("Unknown binary frame type: 0b%02b", ft)
-    except Exception as exc:
-        logger.error("Error dispatching binary frame (type 0b%02b): %s", ft, exc)

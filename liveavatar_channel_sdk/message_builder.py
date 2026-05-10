@@ -41,6 +41,19 @@ class MessageBuilder:
         }
 
     @staticmethod
+    def session_closing(reason: Optional[str] = None) -> dict:
+        """session.closing: Avatar service is about to close (e.g. timeout)."""
+        data = {}
+        if reason is not None:
+            data["reason"] = reason
+        return {"event": EventType.SESSION_CLOSING, "data": data}
+
+    @staticmethod
+    def session_stop() -> dict:
+        """session.stop: Request to end the current session."""
+        return {"event": EventType.SESSION_STOP}
+
+    @staticmethod
     def scene_ready() -> dict:
         """scene.ready: Sent by JS SDK over LiveKit DataChannel once the
         frontend scene is ready for conversation. Handled by the Live Avatar

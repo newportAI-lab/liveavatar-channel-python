@@ -51,6 +51,10 @@ class AvatarChannelListener(ABC):
         """
 
     @abstractmethod
+    async def on_session_stop(self) -> None:
+        """Remote party requested session stop."""
+
+    @abstractmethod
     async def on_scene_ready(self) -> None:
         """
         Frontend scene is ready for conversation (LiveKit DataChannel only).

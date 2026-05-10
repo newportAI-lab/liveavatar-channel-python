@@ -27,6 +27,9 @@ class AvatarChannelListenerAdapter(AvatarChannelListener):
     async def on_session_closing(self, reason: Optional[str]) -> None:
         pass
 
+    async def on_session_stop(self) -> None:
+        pass
+
     async def on_scene_ready(self) -> None:
         pass
 

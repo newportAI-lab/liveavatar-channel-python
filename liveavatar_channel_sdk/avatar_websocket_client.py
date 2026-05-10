@@ -27,11 +27,10 @@ from websockets.exceptions import ConnectionClosed
 
 from liveavatar_channel_sdk.audio_frame import AudioFrame
 from liveavatar_channel_sdk.avatar_channel_listener import AvatarChannelListener
-from liveavatar_channel_sdk.event_type import EventType
+from liveavatar_channel_sdk.dispatch import dispatch_text_event
 from liveavatar_channel_sdk.exponential_backoff_strategy import ExponentialBackoffStrategy
 from liveavatar_channel_sdk.image_frame import ImageFrame
-from liveavatar_channel_sdk.message_builder import MessageBuilder
-from liveavatar_channel_sdk.session_state import SessionState
+from liveavatar_channel_sdk.message_sender import MessageSender
 from liveavatar_channel_sdk.streaming_response_handler import StreamingResponseHandler
 
 logger = logging.getLogger(__name__)
@@ -45,7 +44,7 @@ def _frame_type(data: bytes) -> int:
     return (data[0] >> 6) & 0x3
 
 
-class AvatarWebSocketClient:
+class AvatarWebSocketClient(MessageSender):
     """
     Manages the WebSocket connection lifecycle and protocol event dispatch.
 
@@ -89,7 +88,6 @@ class AvatarWebSocketClient:
         await self._connect_once()
 
         if self._backoff is not None:
-            # Schedule the reconnect loop as a background task.
             asyncio.ensure_future(self._reconnect_loop())
 
     async def disconnect(self) -> None:
@@ -106,7 +104,7 @@ class AvatarWebSocketClient:
             self._ws = None
 
     # ------------------------------------------------------------------
-    # Public API — send helpers (developer → avatar)
+    # MessageSender abstract method implementations
     # ------------------------------------------------------------------
 
     async def send_json(self, message: dict) -> None:
@@ -120,78 +118,6 @@ class AvatarWebSocketClient:
         if self._ws is None:
             raise RuntimeError("Not connected")
         await self._ws.send(data)
-
-    # Convenience wrappers for common outgoing messages:
-
-    async def send_session_ready(self) -> None:
-        await self.send_json(MessageBuilder.session_ready())
-
-    async def send_scene_ready(self) -> None:
-        """scene.ready — LiveKit DataChannel only; sent by the JS SDK to signal
-        the frontend scene is ready for conversation."""
-        await self.send_json(MessageBuilder.scene_ready())
-
-    # Scenario 2B (Developer ASR / Omni): the developer runs ASR+VAD
-    # internally and sends the input.voice.* / input.asr.* events back to
-    # the platform. Protocol shape is identical to Scenario 2A, direction
-    # is reversed.
-
-    async def send_input_voice_start(self, request_id: str) -> None:
-        await self.send_json(MessageBuilder.input_voice_start(request_id))
-
-    async def send_input_voice_finish(self, request_id: str) -> None:
-        await self.send_json(MessageBuilder.input_voice_finish(request_id))
-
-    async def send_input_asr_partial(self, request_id: str, text: str, seq: int) -> None:
-        await self.send_json(MessageBuilder.input_asr_partial(request_id, text, seq))
-
-    async def send_input_asr_final(self, request_id: str, text: str) -> None:
-        await self.send_json(MessageBuilder.input_asr_final(request_id, text))
-
-    async def send_response_start(
-        self,
-        request_id: str,
-        response_id: str,
-        speed: float = 1.0,
-        volume: float = 1.0,
-        mood: Optional[str] = None,
-    ) -> None:
-        await self.send_json(
-            MessageBuilder.response_start(request_id, response_id, speed, volume, mood)
-        )
-
-    async def send_response_chunk(
-        self,
-        request_id: str,
-        response_id: str,
-        seq: int,
-        timestamp: int,
-        text: str,
-    ) -> None:
-        await self.send_json(
-            MessageBuilder.response_chunk(request_id, response_id, seq, timestamp, text)
-        )
-
-    async def send_response_done(self, request_id: str, response_id: str) -> None:
-        await self.send_json(MessageBuilder.response_done(request_id, response_id))
-
-    async def send_response_cancel(self, response_id: str) -> None:
-        await self.send_json(MessageBuilder.response_cancel(response_id))
-
-    async def send_control_interrupt(self, request_id: Optional[str] = None) -> None:
-        await self.send_json(MessageBuilder.control_interrupt(request_id))
-
-    async def send_system_prompt(self, text: str) -> None:
-        await self.send_json(MessageBuilder.system_prompt(text))
-
-    async def send_error(self, code: str, message: str, request_id: Optional[str] = None) -> None:
-        await self.send_json(MessageBuilder.error(code, message, request_id))
-
-    async def send_audio_frame(self, frame: AudioFrame) -> None:
-        await self.send_binary(frame.pack())
-
-    async def send_image_frame(self, frame: ImageFrame) -> None:
-        await self.send_binary(frame.pack())
 
     # ------------------------------------------------------------------
     # Internal — connection helpers
@@ -238,145 +164,13 @@ class AvatarWebSocketClient:
         try:
             async for message in self._ws:
                 if isinstance(message, str):
-                    await self._dispatch_text(message)
+                    await dispatch_text_event(message, self._listener, self._streaming)
                 elif isinstance(message, bytes):
                     await self._dispatch_binary(message)
         except ConnectionClosed as exc:
             logger.info("Connection closed: %s", exc)
         except Exception as exc:
             logger.error("Receive loop error: %s", exc)
-
-    # ------------------------------------------------------------------
-    # Internal — dispatch text messages
-    # ------------------------------------------------------------------
-
-    async def _dispatch_text(self, raw: str) -> None:
-        try:
-            msg = json.loads(raw)
-        except json.JSONDecodeError:
-            logger.warning("Received non-JSON text message: %.120s", raw)
-            return
-
-        event_type = msg.get("event")
-        data = msg.get("data", {})
-        listener = self._listener
-
-        try:
-            if event_type == EventType.SESSION_INIT:
-                await listener.on_session_init(
-                    session_id=data["sessionId"],
-                    user_id=data["userId"],
-                )
-
-            elif event_type == EventType.SESSION_READY:
-                await listener.on_session_ready()
-
-            elif event_type == EventType.SESSION_STATE:
-                state = SessionState(data["state"])
-                await listener.on_session_state(
-                    state=state,
-                    seq=msg["seq"],
-                    timestamp=msg["timestamp"],
-                )
-
-            elif event_type == EventType.SESSION_CLOSING:
-                await listener.on_session_closing(reason=data.get("reason"))
-
-            elif event_type == EventType.SCENE_READY:
-                await listener.on_scene_ready()
-
-            elif event_type == EventType.INPUT_TEXT:
-                await listener.on_input_text(
-                    request_id=msg["requestId"],
-                    text=data["text"],
-                )
-
-            elif event_type == EventType.INPUT_ASR_PARTIAL:
-                await listener.on_asr_partial(
-                    request_id=msg["requestId"],
-                    text=data["text"],
-                    seq=msg["seq"],
-                )
-
-            elif event_type == EventType.INPUT_ASR_FINAL:
-                await listener.on_asr_final(
-                    request_id=msg["requestId"],
-                    text=data["text"],
-                )
-
-            elif event_type == EventType.INPUT_VOICE_START:
-                await listener.on_voice_start(request_id=msg["requestId"])
-
-            elif event_type == EventType.INPUT_VOICE_FINISH:
-                await listener.on_voice_finish(request_id=msg["requestId"])
-
-            elif event_type == EventType.RESPONSE_START:
-                await listener.on_response_start(
-                    request_id=msg["requestId"],
-                    response_id=msg["responseId"],
-                    audio_config=data.get("audioConfig"),
-                )
-
-            elif event_type == EventType.RESPONSE_CHUNK:
-                await self._streaming.handle_chunk(
-                    request_id=msg["requestId"],
-                    response_id=msg["responseId"],
-                    seq=msg["seq"],
-                    text=data["text"],
-                )
-
-            elif event_type == EventType.RESPONSE_DONE:
-                await self._streaming.handle_done(
-                    request_id=msg["requestId"],
-                    response_id=msg["responseId"],
-                )
-
-            elif event_type == EventType.RESPONSE_AUDIO_START:
-                await listener.on_response_audio_start(
-                    request_id=msg["requestId"],
-                    response_id=msg["responseId"],
-                )
-
-            elif event_type == EventType.RESPONSE_AUDIO_FINISH:
-                await listener.on_response_audio_finish(
-                    request_id=msg["requestId"],
-                    response_id=msg["responseId"],
-                )
-
-            elif event_type == EventType.RESPONSE_AUDIO_PROMPT_START:
-                await listener.on_response_audio_prompt_start()
-
-            elif event_type == EventType.RESPONSE_AUDIO_PROMPT_FINISH:
-                await listener.on_response_audio_prompt_finish()
-
-            elif event_type == EventType.RESPONSE_CANCEL:
-                self._streaming.clear(msg.get("responseId"))
-                await listener.on_response_cancel(response_id=msg["responseId"])
-
-            elif event_type == EventType.CONTROL_INTERRUPT:
-                await listener.on_control_interrupt(request_id=msg.get("requestId"))
-
-            elif event_type == EventType.SYSTEM_IDLE_TRIGGER:
-                await listener.on_idle_trigger(
-                    reason=data["reason"],
-                    idle_time_ms=data["idleTimeMs"],
-                )
-
-            elif event_type == EventType.SYSTEM_PROMPT:
-                await listener.on_system_prompt(text=data["text"])
-
-            elif event_type == EventType.ERROR:
-                await listener.on_error(
-                    request_id=msg.get("requestId"),
-                    code=data["code"],
-                    message=data["message"],
-                )
-
-            else:
-                logger.warning("Unknown event type: %s", event_type)
-
-        except Exception as exc:
-            logger.error("Error dispatching %s: %s", event_type, exc)
 
     # ------------------------------------------------------------------
     # Internal — dispatch binary frames

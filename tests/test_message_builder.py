@@ -41,6 +41,22 @@ class TestMessageBuilderSessions:
         assert msg["data"]["state"] == "IDLE"
         assert set(msg.keys()) == {"event", "seq", "timestamp", "data"}
 
+    def test_session_stop(self):
+        msg = MessageBuilder.session_stop()
+        assert msg["event"] == EventType.SESSION_STOP
+        assert set(msg.keys()) == {"event"}
+
+    def test_session_closing(self):
+        msg = MessageBuilder.session_closing("timeout")
+        assert msg["event"] == EventType.SESSION_CLOSING
+        assert msg["data"]["reason"] == "timeout"
+        assert set(msg.keys()) == {"event", "data"}
+
+    def test_session_closing_missing_reason(self):
+        msg = MessageBuilder.session_closing()
+        assert msg["event"] == EventType.SESSION_CLOSING
+        assert "reason" not in msg.get("data", {})
+
     def test_scene_ready(self):
         msg = MessageBuilder.scene_ready()
         assert msg["event"] == EventType.SCENE_READY
@@ -232,6 +248,8 @@ class TestMessageBuilderJsonSerializable:
             MessageBuilder.session_init("sess-1", "user-1"),
             MessageBuilder.session_ready(),
             MessageBuilder.session_state("IDLE", 0, 0),
+            MessageBuilder.session_closing("timeout"),
+            MessageBuilder.session_stop(),
             MessageBuilder.scene_ready(),
             MessageBuilder.input_text("req-1", "hello"),
             MessageBuilder.input_asr_partial("req-1", "hel", 0),

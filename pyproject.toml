@@ -16,6 +16,7 @@ authors = [
 dependencies = [
     "websockets>=12",
     "sortedcontainers",
+    "httpx>=0.25",
 ]
 
 [project.optional-dependencies]
@@ -26,6 +27,7 @@ server = [
 dev = [
     "pytest",
     "pytest-asyncio",
+    "pytest-httpx",
     "ruff",
     "black",
 ]

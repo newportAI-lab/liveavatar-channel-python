@@ -9,6 +9,7 @@
 - Python 3.9+
 - `websockets >= 12`
 - `sortedcontainers`
+- `httpx >= 0.25`
 
 可选（参考服务器）：
 
@@ -108,6 +109,63 @@ image_bytes = (
 await client.send_binary(image_bytes)
 ```
 
+### 4. 通过 REST API 管理会话
+
+```python
+from liveavatar_channel_sdk import SessionClient
+
+client = SessionClient(
+    api_key="sk-...",
+    # base_url 默认为 https://facemarket.ai/vih/dispatcher
+    sandbox=True,  # True = 添加 X-Env-Sandbox 请求头用于测试
+)
+
+# 创建新会话
+result = await client.start(avatar_id="avatar-123")
+print(result.session_id, result.agent_ws_url, result.user_token)
+
+# 重连已有会话
+result = await client.start(avatar_id="avatar-123", session_id="sess-old")
+
+# 停止会话
+await client.stop(session_id=result.session_id)
+
+# 释放资源
+await client.close()
+```
+
+### 5. 出站模式服务器（FastAPI）
+
+```python
+from fastapi import FastAPI, WebSocket
+from liveavatar_channel_sdk import (
+    AvatarChannelListenerAdapter, WebSocketAdapter, dispatch_text_event
+)
+
+app = FastAPI()
+
+class MyOutboundListener(AvatarChannelListenerAdapter):
+    def __init__(self, adapter: WebSocketAdapter):
+        self._adapter = adapter
+
+    async def on_session_init(self, session_id, user_id):
+        await self._adapter.send_session_ready()
+
+    async def on_input_text(self, request_id, text):
+        # 通过 adapter 流式返回响应
+        await self._adapter.send_response_start(request_id, "resp-1")
+        await self._adapter.send_response_chunk(request_id, "resp-1", 0, 0, text)
+        await self._adapter.send_response_done(request_id, "resp-1")
+
+@app.websocket("/avatar/ws")
+async def outbound_ws(ws: WebSocket):
+    await ws.accept()
+    adapter = WebSocketAdapter(ws)
+    listener = MyOutboundListener(adapter)
+    async for raw in ws.iter_text():
+        await dispatch_text_event(raw, listener)
+```
+
 ## 启动参考服务器
 
 参考服务器演示**出站模式（Outbound）**——你的服务器暴露 WebSocket 端点，平台主动连接。
@@ -152,20 +210,34 @@ python -m liveavatar_channel_sdk.example.live_avatar_service_simulator
 ### 出站模式（平台连接你）
 
 1. 在 Live Avatar 控制台注册你的 `wsEndpoint`（一次性配置）。
-2. 使用 API Key 调用 `POST /session/start`。
+2. 使用 `SessionClient` 调用 `POST /session/start`：
+   ```python
+   from liveavatar_channel_sdk import SessionClient
+   client = SessionClient(api_key="sk-...")
+   result = await client.start(avatar_id="avatar-123")
+   ```
 3. 平台连接到你的 `wsEndpoint`。
-4. 平台发送 `session.init` —— 回复 `session.ready`。
+4. 平台发送 `session.init` —— 通过监听器回复 `session.ready`。
 5. 通过 WebSocket 交换协议事件。
 6. 平台通过 HTTP 响应返回 `{sessionId, userToken, sfuUrl}`（将 `userToken` + `sfuUrl` 传递给前端）。
 
 ### 入站模式（你连接平台）
 
 1. 在 Live Avatar 控制台启用入站模式（一次性）。
-2. 使用 API Key 调用 `POST /session/start` —— 响应中包含 `agentWsUrl`。
-3. 作为 WebSocket 客户端连接到 `agentWsUrl`。
-4. 平台发送 `session.init` —— 回复 `session.ready`。
-5. 将响应中的 `userToken` + `sfuUrl` 传递给前端。
-6. 通过 WebSocket 交换协议事件。
+2. 使用 `SessionClient` 调用 `POST /session/start` —— 响应中包含 `agentWsUrl`：
+   ```python
+   from liveavatar_channel_sdk import SessionClient, AvatarWebSocketClient
+   
+   client = SessionClient(api_key="sk-...")
+   result = await client.start(avatar_id="avatar-123")
+   
+   listener = MyListener()
+   ws = AvatarWebSocketClient(result.agent_ws_url, listener)
+   await ws.connect()
+   ```
+3. 平台发送 `session.init` —— 回复 `session.ready`。
+4. 将响应中的 `userToken` + `sfuUrl` 传递给前端。
+5. 通过 WebSocket 交换协议事件。
 
 ## 运行测试
 
@@ -205,6 +277,12 @@ pytest -s -v
 | `ImageFrameBuilder` | 12 字节头部二进制图像帧的流式构建器 |
 | `ExponentialBackoffStrategy` | 可选的自动重连（1s → 60s），默认关闭 |
 | `SessionManager` | 服务端异步安全的会话注册表 |
+| `SessionClient` | 用于 `POST /v1/session/start` 和 `/v1/session/stop` 的异步 REST 客户端 |
+| `SessionStartResult` | `/session/start` 的类型化响应（session_id、各类 token、URL） |
+| `SessionStartError` | 平台错误码（40001–40007）的结构化异常 |
+| `MessageSender` | 抽象混入类 —— 实现 `send_json`/`send_binary` 即可获得所有 `send_*()` 辅助方法 |
+| `WebSocketAdapter` | 将服务端 `fastapi.WebSocket` 包装为 `MessageSender`，供出站模式使用 |
+| `dispatch_text_event` | 共享函数，将每条协议文本事件路由到对应的监听器回调 |
 
 ## 协议概览
 
@@ -240,6 +318,8 @@ pytest -s -v
 | 事件 | 说明 |
 |---|---|
 | `session.ready` | 握手应答 —— 收到 `session.init` 后**必须**发送 |
+| `session.stop` | 请求结束当前会话 |
+| `session.closing` | 通知对方本端即将关闭 |
 | `response.start` | 可选：配置 TTS 参数（`speed`、`volume`、`mood`） |
 | `response.chunk` | 流式文本片段（含 `seq` 和 `timestamp`） |
 | `response.done` | 流式响应结束 |
