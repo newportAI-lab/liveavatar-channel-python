@@ -115,7 +115,7 @@ class AvatarAgentConfig:
     sandbox: bool = False
     timeout: float = 30.0
     developer_tts: bool = False
-    developer_asr: bool = False
+    developer_asr: bool = True
     voice_id: str | None = None
     reconnect: bool = False
     reconnect_base_delay: float = 1.0
