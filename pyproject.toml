@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "liveavatar-channel-sdk"
-version = "0.1.0"
+version = "0.2.0"
 description = "Live Avatar Channel SDK - Python WebSocket protocol for live avatar communication"
 readme = {file = "README.md", content-type = "text/markdown"}
 requires-python = ">=3.9"
@@ -15,15 +15,10 @@ authors = [
 
 dependencies = [
     "websockets>=12",
-    "sortedcontainers",
     "httpx>=0.25",
 ]
 
 [project.optional-dependencies]
-server = [
-    "fastapi>=0.100",
-    "uvicorn[standard]>=0.20",
-]
 dev = [
     "pytest",
     "pytest-asyncio",
@@ -34,7 +29,7 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["liveavatar_channel_sdk*", "liveavatar_channel_server_example*"]
+include = ["liveavatar_channel_sdk*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
