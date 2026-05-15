@@ -24,11 +24,9 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import Optional
-
 import httpx
 
-from liveavatar_channel_sdk._ws_client import _AvatarWsClient, _AgentCallbacks
+from liveavatar_channel_sdk._ws_client import _AvatarWsClient
 from liveavatar_channel_sdk.audio_frame import AudioFrame
 from liveavatar_channel_sdk.message_builder import MessageBuilder
 from liveavatar_channel_sdk.session_models import (
