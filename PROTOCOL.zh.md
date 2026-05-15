@@ -67,13 +67,9 @@
 
 # 文本协议分场景设计
 
-## WebSocket Inbound/Outbound 模式
+## WebSocket 连接模型
 
-### Inbound 模式
-
-Inbound 模式是指数字人服务提供 WebSocket 服务地址，开发者服务来请求数字人服务提供的 WebSocket 服务。
-
-它的整体执行时序如下：
+数字人平台提供 WebSocket 服务端，为每个会话动态分配 WS 端点（`agentWsUrl`）。开发者后端作为 WebSocket 客户端连接到平台，无需暴露公网服务。
 
 ```mermaid
 sequenceDiagram
@@ -84,25 +80,18 @@ sequenceDiagram
     participant RTC as RTC房间 (SFU)
     participant Avatar as 数字人引擎
 
-    %% 核心差异高亮：整个会话建立过程全在服务端完成
-    rect rgb(255, 240, 220)
-    Note over AppServer, Platform: 【Inbound 核心差异】
     AppServer->>Platform: /session/start (API Key)
     Platform->>Avatar: 启动数字人
     Avatar->>RTC: 加入房间
     Avatar->>Platform: 启动完成
     Platform->>AppServer: { sessionId, clientToken, agentWsUrl, sfuUrl }
     AppServer-->>Platform: 通过 agentWsUrl 建立 WebSocket 连接
-    Note right of AppServer: 无需 sessionToken，前端不参与会话建立<br/>AppServer 直接用 API Key 调 /session/start<br/>agentWsUrl 直接返回给 AppServer（不得转发给前端）<br/>AppServer 主动发起 WebSocket 连接（开发者侧为 WS 客户端）<br/>开发者侧无需公网 IP
-    end
+    Note right of AppServer: AppServer 直接用 API Key 调 /session/start<br/>agentWsUrl 直接返回给 AppServer（不得转发给前端）<br/>AppServer 作为 WebSocket 客户端——无需公网 IP
     AppServer->>User: { clientToken, sfuUrl }
 
-
-    %% 2. RTC 链路建立
     User->>RTC: 加入房间 (clientToken)
     User-->>RTC: 发布文本/音频流
 
-    %% 3. 核心业务循环
     Platform-->>RTC: 订阅用户文本/音频流
     Platform->>AppServer: 通过 WebSocket 转发给业务后端
 
@@ -113,70 +102,15 @@ sequenceDiagram
         AppServer-->>Avatar: 返回回复音频流
     end
 
-    %% 4. 数字人反馈
     Avatar->>RTC: 发布数字人音视频流
     RTC-->>User: 订阅并渲染
 ```
 
-### Outbound 模式
-
-Outbound 模式是指开发者服务提供 WebSocket 服务地址，数字人服务来请求开发者服务提供的 WebSocket 服务。
-
-它的整体执行时序如下：
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant User as 用户(前端SDK)
-    participant AppServer as 开发者后端
-    participant Platform as 数字人服务
-    participant RTC as RTC房间 (SFU)
-    participant Avatar as 数字人引擎
-
-    %% 核心差异高亮：Outbound 模式下后端直接调 /session/start，无需 sessionToken
-    rect rgb(220, 245, 220)
-    Note over AppServer, Platform: 【Outbound 核心差异】
-    AppServer->>Platform: /session/start (API Key)
-    Platform-->>AppServer: 建立 WebSocket 连接（平台作为 Client）
-    Note left of AppServer: 开发者侧需暴露公网IP/域名<br/>需处理平台握手鉴权<br/>后端直接用 API Key 调 /session/start，无需 sessionToken
-    Platform->>Avatar: 启动数字人
-    Avatar->>RTC: 加入房间
-    Avatar->>Platform: 启动完成
-    Platform->>AppServer: { sessionId, clientToken, sfuUrl }
-    end
-
-    AppServer->>User: { clientToken, sfuUrl }
-
-    %% 2. RTC 链路建立
-    User->>RTC: 加入房间 (clientToken)
-    User-->>RTC: 发布文本/音频流
-
-    %% 3. 核心业务循环
-    Platform-->>RTC: 订阅用户文本/音频流
-    Platform->>AppServer: 通过 WebSocket 转发给业务后端
-
-    alt 文本模式
-        AppServer-->>Avatar: 返回回复文本
-        Avatar->>Avatar: 内部 TTS 转换
-    else 音频模式
-        AppServer-->>Avatar: 返回回复音频流
-    end
-
-    %% 4. 数字人反馈
-    Avatar->>RTC: 发布数字人音视频流
-    RTC-->>User: 订阅并渲染
-```
-
-### 两种模式的适用场景
-
-- 如果你的业务对**极低延迟和大规模并发稳定性**有要求，且你有成熟的运维团队能暴露稳定的公网端点，**Outbound** 在架构美感和资源受控度上更优。
-- 如果你追求**快速交付、内网安全**，且不希望处理复杂的防火墙穿透问题，**Inbound** 带来的微小性能损失在 Java 异步框架（如 Netty/WebFlux）下几乎可以忽略不计。
-
-> **sessionToken 架构说明**
+> **sessionToken**
 >
-> Inbound 和 Outbound 两种模式采用相同的认证模式：**开发者后端**直接用 API Key 调用 `/session/start`，获得 `clientToken + sfuUrl` 后分发给前端。两种模式均**不需要** `sessionToken`（即通过 `/auth/getAuthToken` 获取的令牌）。
+> `sessionToken`（通过 `/auth/session/token` 获取）仅用于全托管模式，此模式下**前端**直接调用 `/session/start`，后端仅充当令牌中转——既避免 API Key 暴露在客户端，又无需后端深度介入。
 >
-> `sessionToken` 仅用于轻量托管模式（全托管、API Key 托管），在这些模式下**前端**直接调用 `/session/start`，后端仅充当令牌中转——既避免 API Key 暴露在客户端，又无需后端深度介入。
+> 在 WebSocket Agent 和 RTC 模式下，**开发者后端**直接用 API Key 调用 `/session/start`，获得 `clientToken + sfuUrl` 后分发给前端。**不需要** `sessionToken`。
 
 ---
 
@@ -185,6 +119,8 @@ sequenceDiagram
 ### 1️⃣ 建立连接
 
 #### Client（数字人服务）→ Server（开发者服务）
+
+> WebSocket 连接建立后，**永远是数字人服务先发** `session.init`。
 
 ```json
 {
@@ -449,68 +385,20 @@ sequenceDiagram
 ## 场景二：实时语音输入
 
 > **设计原则 — ASR 归属权：**
-> ASR 由谁提供，ASR 识别结果和 VAD 判定就由谁来负责——对应事件也由谁来发送。
+> ASR 由谁提供，ASR 识别结果和 VAD 判定就由谁来负责。
 >
-> - **平台 ASR** → 平台执行 ASR + VAD，将 `input.asr.*` / `input.voice.*` **下发给**开发者服务。
-> - **开发者 ASR / Omni** → 平台持续转发原始音频 Binary Frame；开发者执行 ASR + VAD，再将同样的 `input.asr.*` / `input.voice.*` **回传给**平台（事件相同，方向相反）。这样平台状态机才能正常流转，对话内容才能正常记录和展示。
+> - **平台 ASR** → 平台内部执行 ASR + VAD，识别结果以 `input.text` 的形式发送到 agent WebSocket（与场景一的文字输入格式相同）。`input.asr.*` / `input.voice.*` 事件属于平台内部事件，**不会**转发到 agent WebSocket。
+> - **开发者 ASR / Omni** → 平台持续转发原始音频 Binary Frame；开发者执行 ASR + VAD，再将 `input.asr.*` / `input.voice.*` **发送给平台**，以便平台状态机正常流转、对话内容正常记录。`input.asr.*` / `input.voice.*` 事件**仅**用于此路径。
 
 ---
 
 ### 场景 2A：平台 ASR
 
-以下事件由**数字人服务（平台）→ 开发者服务**发送。
+此模式下，平台内部执行 ASR 和 VAD，识别结果以 `input.text` 的形式发送到 agent WebSocket — 与场景一中文字输入使用的事件完全相同。开发者处理方式与文本消息完全一致。
 
-#### ASR 识别 — 流式中间结果
+`input.asr.*` 和 `input.voice.*` 事件属于平台内部事件，**不会**转发到 agent WebSocket。这些事件仅用于开发者 ASR 路径（场景 2B），由开发者发送给平台。
 
-```json
-{
-  "event": "input.asr.partial",
-  "requestId": "req_2",
-  "seq": 3,
-  "data": {
-    "text": "你叫",
-    "final": false
-  }
-}
-```
-
----
-
-#### ASR 识别 — 最终结果
-
-```json
-{
-  "event": "input.asr.final",
-  "requestId": "req_2",
-  "data": {
-    "text": "你叫什么名字"
-  }
-}
-```
-
----
-
-#### 语音活动检测 — 说话开始
-
-```json
-{
-  "event": "input.voice.start",
-  "requestId": "req_1"
-}
-```
-
-#### 语音活动检测 — 说话结束
-
-```json
-{
-  "event": "input.voice.finish",
-  "requestId": "req_1"
-}
-```
-
-`input.asr.partial` 为可选事件，仅发送 `input.asr.final` 也是允许的。
-
-👉 后续流程同文本输入（场景一）。
+👉 此场景流程与场景一完全相同 — agent 收到 `input.text` 后以标准 response 事件回复。
 
 ---
 
@@ -524,7 +412,7 @@ Binary Frame 持续转发，格式与[音频协议](#音频协议设计仅-webso
 
 > 原始音频 Binary Frame 格式与开发者自定义 TTS 输出所用的 `response.audio.*` Binary Frame 格式完全相同，仅传输方向相反。
 
-开发者在内部执行 VAD 和 ASR，然后将**同样的 `input.voice.*` 和 `input.asr.*` 事件回传给平台**（与场景 2A 方向相反）：
+开发者在内部执行 VAD 和 ASR，然后将 **`input.voice.*` 和 `input.asr.*` 事件发送给平台**：
 
 | 事件 | 方向 | 用途 |
 |---|---|---|
