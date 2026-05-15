@@ -202,7 +202,7 @@ packed = frame.pack()   # bytes（9 字节头部 + 负载）
 | `sandbox` | `False` | 启用沙箱模式（添加 `X-Env-Sandbox` 请求头） |
 | `timeout` | `30.0` | HTTP 请求 + 握手超时（秒） |
 | `developer_tts` | `False` | 当你提供 TTS 音频帧时设为 `True` |
-| `developer_asr` | `False` | 当你运行 ASR + VAD（Omni 模式）时设为 `True` |
+| `developer_asr` | `True` | 默认由开发者运行 ASR + VAD；设为 `False` 使用平台 ASR |
 | `voice_id` | `None` | 覆盖数字人的默认音色 |
 | `reconnect` | `False` | 断开时启用自动重连 |
 | `reconnect_base_delay` | `1.0` | 指数退避的基础延迟（秒） |

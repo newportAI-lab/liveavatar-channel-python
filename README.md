@@ -205,7 +205,7 @@ Override these on `AgentListener`. All are `async` with default no-op implementa
 | `sandbox` | `False` | Enable sandbox mode (adds `X-Env-Sandbox` header) |
 | `timeout` | `30.0` | HTTP request + handshake timeout in seconds |
 | `developer_tts` | `False` | Set to `True` when you provide TTS audio frames |
-| `developer_asr` | `False` | Set to `True` when you run ASR + VAD (Omni mode) |
+| `developer_asr` | `True` | Developer runs ASR + VAD by default; set to `False` for platform ASR |
 | `voice_id` | `None` | Override the avatar's default voice |
 | `reconnect` | `False` | Enable auto-reconnect on disconnect |
 | `reconnect_base_delay` | `1.0` | Base delay for exponential backoff (seconds) |
