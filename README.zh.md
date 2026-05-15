@@ -2,28 +2,23 @@
 
 [English](./README.md) | **中文**
 
-一个用于 Live Avatar WebSocket 协议的 Python SDK，支持在你的服务器与实时数字人服务之间进行文本、音频和图像通信。
+用于 Live Avatar WebSocket 协议的 Python SDK。将你的 AI 后端连接到实时数字人服务，支持文本、音频和图像通信。
+
+**版本 0.2.0** —— 简化的 Agent API，仅需 3 个公开类型。
 
 ## 环境要求
 
 - Python 3.9+
 - `websockets >= 12`
-- `sortedcontainers`
 - `httpx >= 0.25`
 
-可选（参考服务器）：
-
-- `fastapi >= 0.100`
-- `uvicorn >= 0.20`
+无其他运行时依赖。
 
 ## 安装
 
 ```bash
-# 以可编辑模式安装（包含开发依赖）
+# 以可编辑模式安装（包含所有开发依赖）
 pip install -e ".[dev]"
-
-# 同时安装服务器依赖
-pip install -e ".[dev,server]"
 
 # 或使用 uv
 uv sync
@@ -31,53 +26,69 @@ uv sync
 
 ## 快速开始
 
+SDK 提供三种核心类型：
+
+| 类型 | 用途 |
+|---|---|
+| `AvatarAgent` | 单一入口 —— 生命周期（start/stop）和全部 17 个 `send_*()` 方法 |
+| `AgentListener` | 回调接口 —— 覆盖你关心的事件（所有方法默认空实现） |
+| `AvatarAgentConfig` | 配置数据类 —— `api_key`、`avatar_id`、`base_url`、`sandbox`、`timeout`、`developer_tts`、`developer_asr`、`voice_id`、`reconnect` |
+
 ### 1. 实现监听器
 
-继承 `AvatarChannelListenerAdapter`，只需覆盖你关心的事件：
-
 ```python
-from liveavatar_channel_sdk import AvatarChannelListenerAdapter, SessionState
+from liveavatar_channel_sdk import AgentListener
 
-class MyListener(AvatarChannelListenerAdapter):
+class MyAgent(AgentListener):
+    async def on_text_input(self, text: str, request_id: str) -> None:
+        """核心回调：收到用户文本消息。"""
+        reply = await my_ai.chat(text)
+
+        # 流式返回响应
+        await self.agent.send_response_start(request_id, "resp-1")
+        await self.agent.send_response_chunk(
+            request_id, "resp-1", seq=0, timestamp=0, text=reply,
+        )
+        await self.agent.send_response_done(request_id, "resp-1")
+
     async def on_session_init(self, session_id: str, user_id: str) -> None:
         print(f"会话已建立：{session_id}  用户：{user_id}")
-
-    async def on_input_text(self, request_id: str, text: str) -> None:
-        print(f"用户说：{text}")
-        # 通过 client 发送流式响应 …
-
-    async def on_chunk_received(self, request_id, response_id, seq, text) -> None:
-        print(f"[{seq}] {text}", end="", flush=True)
 ```
 
-### 2. 连接并发送消息
+### 2. 创建 Agent 并启动
 
 ```python
 import asyncio
-from liveavatar_channel_sdk import AvatarWebSocketClient, MessageBuilder
+from liveavatar_channel_sdk import AvatarAgent, AvatarAgentConfig
 
 async def main():
-    listener = MyListener()
-    client = AvatarWebSocketClient("ws://localhost:8080/avatar/ws", listener)
+    listener = MyAgent()
+    config = AvatarAgentConfig(
+        api_key="sk-...",
+        avatar_id="avatar-123",
+        # base_url 默认为 https://facemarket.ai/vih/dispatcher
+        # sandbox=True   # 添加 X-Env-Sandbox 请求头
+    )
+    agent = AvatarAgent(config, listener)
+    listener.agent = agent   # 双向引用
 
-    # 可选：启用指数退避自动重连（1s → 60s）
-    await client.enable_auto_reconnect()
+    result = await agent.start()   # REST + WS + 自动发送 session.ready
+    print(f"Session: {result.session_id}")
+    print(f"User token: {result.user_token}")
+    print(f"SFU URL: {result.sfu_url}")
 
-    await client.connect()
+    # ... 等待回调 ...
 
-    # 发送流式响应
-    await client.send_response_start("req-1", "resp-1")
-    await client.send_response_chunk("req-1", "resp-1", seq=0, timestamp=0, text="你好，")
-    await client.send_response_chunk("req-1", "resp-1", seq=1, timestamp=40, text="世界！")
-    await client.send_response_done("req-1", "resp-1")
-
-    await asyncio.sleep(1)
-    await client.disconnect()
+    await agent.stop()   # 幂等 —— 关闭 WS + 调用 /session/stop
 
 asyncio.run(main())
 ```
 
-### 3. 构建二进制帧
+这就是完整的模式。`start()` 会阻塞直到 `session.init` 握手完成（或超时）。`session.ready` 由 SDK 自动发送，无需手动处理。
+
+## 构建二进制帧
+
+仅在**开发者 TTS**模式（`AudioFrame`）或**多模态图像输入**（`ImageFrame`）时需要二进制帧。
 
 ```python
 from liveavatar_channel_sdk import AudioFrameBuilder, ImageFrameBuilder
@@ -94,7 +105,7 @@ audio_bytes = (
     .payload(pcm_data)
     .build()
 )
-await client.send_binary(audio_bytes)
+await agent.send_audio_frame(audio_bytes)
 
 # JPEG 图像帧
 image_bytes = (
@@ -106,183 +117,148 @@ image_bytes = (
     .payload(jpeg_data)
     .build()
 )
-await client.send_binary(image_bytes)
 ```
 
-### 4. 通过 REST API 管理会话
+`AudioFrame` 数据类也可用于直接构造：
 
 ```python
-from liveavatar_channel_sdk import SessionClient
+from liveavatar_channel_sdk import AudioFrame
 
-client = SessionClient(
-    api_key="sk-...",
-    # base_url 默认为 https://facemarket.ai/vih/dispatcher
-    sandbox=True,  # True = 添加 X-Env-Sandbox 请求头用于测试
+frame = AudioFrame(
+    channel=0, seq=100, timestamp=5000,
+    sample_rate=0, samples=640, codec=0,
+    payload=pcm_data,
 )
-
-# 创建新会话
-result = await client.start(avatar_id="avatar-123")
-print(result.session_id, result.agent_ws_url, result.user_token)
-
-# 重连已有会话
-result = await client.start(avatar_id="avatar-123", session_id="sess-old")
-
-# 停止会话
-await client.stop(session_id=result.session_id)
-
-# 释放资源
-await client.close()
+packed = frame.pack()   # bytes（9 字节头部 + 负载）
 ```
 
-### 5. 出站模式服务器（FastAPI）
+## 发送方法
 
-```python
-from fastapi import FastAPI, WebSocket
-from liveavatar_channel_sdk import (
-    AvatarChannelListenerAdapter, WebSocketAdapter, dispatch_text_event
-)
+所有发送方法均位于 `AvatarAgent` 上，按协议角色分组。
 
-app = FastAPI()
+### Platform TTS（默认 —— 平台从文本渲染音频）
 
-class MyOutboundListener(AvatarChannelListenerAdapter):
-    def __init__(self, adapter: WebSocketAdapter):
-        self._adapter = adapter
+| 方法 | 事件 | 说明 |
+|---|---|---|
+| `send_response_start(request_id, response_id, *, speed, volume, mood)` | `response.start` | 可选：在流式传输前配置 TTS 参数 |
+| `send_response_chunk(request_id, response_id, seq, timestamp, text)` | `response.chunk` | 流式文本片段 |
+| `send_response_done(request_id, response_id)` | `response.done` | 流式响应结束 |
+| `send_response_cancel(response_id)` | `response.cancel` | 取消进行中的响应流 |
 
-    async def on_session_init(self, session_id, user_id):
-        await self._adapter.send_session_ready()
+### Developer TTS（你直接提供音频帧）
 
-    async def on_input_text(self, request_id, text):
-        # 通过 adapter 流式返回响应
-        await self._adapter.send_response_start(request_id, "resp-1")
-        await self._adapter.send_response_chunk(request_id, "resp-1", 0, 0, text)
-        await self._adapter.send_response_done(request_id, "resp-1")
+| 方法 | 事件 | 说明 |
+|---|---|---|
+| `send_response_audio_start(request_id, response_id)` | `response.audio.start` | 表示音频输出开始 |
+| `send_audio_frame(frame: AudioFrame)` | *(二进制)* | 发送二进制音频帧（9 字节头部 + PCM/Opus） |
+| `send_response_audio_finish(request_id, response_id)` | `response.audio.finish` | 表示音频输出结束 |
+| `send_prompt_audio_start()` | `response.audio.promptStart` | 空闲提示音频开始 |
+| `send_prompt_audio_finish()` | `response.audio.promptFinish` | 空闲提示音频结束 |
 
-@app.websocket("/avatar/ws")
-async def outbound_ws(ws: WebSocket):
-    await ws.accept()
-    adapter = WebSocketAdapter(ws)
-    listener = MyOutboundListener(adapter)
-    async for raw in ws.iter_text():
-        await dispatch_text_event(raw, listener)
+### Developer ASR / Omni（你在原始音频上运行 ASR + VAD）
+
+| 方法 | 事件 | 说明 |
+|---|---|---|
+| `send_voice_start(request_id)` | `input.voice.start` | 检测到语音活动 |
+| `send_asr_partial(request_id, text, seq)` | `input.asr.partial` | 流式 ASR 结果（部分） |
+| `send_voice_finish(request_id)` | `input.voice.finish` | 语音活动结束 |
+| `send_asr_final(request_id, text)` | `input.asr.final` | 最终 ASR 结果 |
+
+### 控制
+
+| 方法 | 事件 | 说明 |
+|---|---|---|
+| `send_interrupt(request_id=None)` | `control.interrupt` | 主动的业务逻辑打断。可选 `request_id` 实现精确目标 |
+| `send_prompt(text)` | `system.prompt` | 推送空闲唤醒文本触发 TTS 播放 |
+
+### 错误
+
+| 方法 | 事件 | 说明 |
+|---|---|---|
+| `send_error(code, message, request_id=None)` | `error` | 向平台报告错误 |
+
+## 监听器回调
+
+在 `AgentListener` 上覆盖这些方法。所有方法都是 `async` 且默认空实现。
+
+| 回调 | 触发时机 | 何时覆盖 |
+|---|---|---|
+| `on_text_input(text, request_id)` | 收到用户文本（输入或平台 ASR 结果） | **核心** —— 在这里回复用户消息 |
+| `on_session_init(session_id, user_id)` | 握手完成 | 日志、监控 |
+| `on_session_state(state: SessionState)` | 会话状态改变 | UI 同步、调试 |
+| `on_session_closing(reason)` | 平台即将关闭连接 | 优雅关闭 |
+| `on_idle_trigger(reason, idle_time_ms)` | 用户长时间不活跃 | 发送空闲唤醒提示 |
+| `on_audio_frame(frame: AudioFrame)` | 来自平台的原始二进制音频 | 仅开发者 ASR 模式 |
+| `on_error(code, message)` | 来自平台或传输层的错误 | 错误处理/降级 |
+| `on_closed(code, reason)` | WebSocket 连接关闭 | 清理、重连逻辑 |
+
+## AvatarAgentConfig
+
+| 字段 | 默认值 | 说明 |
+|---|---|---|
+| `api_key` | *(必填)* | 平台 API Key（仅服务端使用） |
+| `avatar_id` | *(必填)* | 唯一数字人标识符 |
+| `base_url` | `https://facemarket.ai/vih/dispatcher` | 平台基础 URL |
+| `sandbox` | `False` | 启用沙箱模式（添加 `X-Env-Sandbox` 请求头） |
+| `timeout` | `30.0` | HTTP 请求 + 握手超时（秒） |
+| `developer_tts` | `False` | 当你提供 TTS 音频帧时设为 `True` |
+| `developer_asr` | `False` | 当你运行 ASR + VAD（Omni 模式）时设为 `True` |
+| `voice_id` | `None` | 覆盖数字人的默认音色 |
+| `reconnect` | `False` | 断开时启用自动重连 |
+| `reconnect_base_delay` | `1.0` | 指数退避的基础延迟（秒） |
+| `reconnect_max_delay` | `60.0` | 指数退避的最大延迟（秒） |
+
+## 架构说明
+
+```
+开发者代码（实现 AgentListener，调用 agent.start() / agent.send_*()）
+    |
+    v
+AvatarAgent（单一入口：生命周期、REST、WS、事件分发）
+    |         内部：_AvatarWsClient / MessageBuilder / AudioFrameBuilder
+    v
+平台（Live Avatar Service）
 ```
 
-## 启动参考服务器
+SDK 在 `start()` 内部自动完成以下步骤：
 
-参考服务器演示**出站模式（Outbound）**——你的服务器暴露 WebSocket 端点，平台主动连接。
+1. 使用你的 API Key 创建 HTTPX 客户端。
+2. 使用你的 `avatar_id` 调用 `POST /v1/session/start`。
+3. 通过 WebSocket 连接到返回的 `agentWsUrl`。
+4. 等待 `session.init` 并自动回复 `session.ready`。
+5. 将入站事件分发到你的 `AgentListener` 回调。
+6. `stop()` 断开 WebSocket 并调用 `POST /v1/session/stop`。
+
+### 会话状态
+
+平台通过 `session.state` 事件同步状态。状态定义在 `SessionState` 中：
+
+| 状态 | 说话者 | 系统行为 |
+|---|---|---|
+| `IDLE` | -- | 等待输入 |
+| `LISTENING` | 用户 | ASR 激活 |
+| `THINKING` | 系统（大脑） | LLM / TTS 准备中 |
+| `STAGING` | 系统（身体） | 数字人渲染准备中 |
+| `SPEAKING` | 系统（身体） | 数字人正在输出响应 |
+| `PROMPT_THINKING` | 系统（大脑） | 准备空闲唤醒脚本 |
+| `PROMPT_STAGING` | 系统（身体） | 数字人渲染准备中（提示） |
+| `PROMPT_SPEAKING` | 系统（身体） | 数字人播放空闲唤醒音频 |
+
+## 运行示例
+
+SDK 包含一个模拟器，演示完整的 Agent 模式。
+
+你需要一个运行中的平台端点。本地测试时可指向任何实现了 Live Avatar WebSocket 协议的服务器。
 
 ```bash
-uvicorn liveavatar_channel_server_example.main:app --host 0.0.0.0 --port 8080
-```
-
-**端点：**
-
-| 端点 | 用途 |
-|---|---|
-| `GET /avatar/ws` | 出站模式 WS 端点 —— 你调用 `POST /session/start` 后，平台连接到此 |
-| `POST /avatar/session/start` | 模拟 REST API —— 模拟平台的会话创建接口，用于本地测试 |
-| `GET /avatar/platform-ws/{session_id}` | 平台模拟器 WS —— 发送 `session.init` / `input.text`，供入站模式客户端本地测试 |
-
-## 启动入站模式客户端示例
-
-客户端模拟器演示**入站模式（Inbound）**——你的服务器调用 `POST /session/start` 获取 `agentWsUrl`，然后作为 WebSocket 客户端连接到平台。
-
-在另一个终端（服务器运行时）：
-
-```bash
-python -m liveavatar_channel_sdk.example.live_avatar_service_simulator
-```
-
-**流程：** REST 调用 → 获取 `agentWsUrl` → 连接 → 接收 `session.init` → 发送 `session.ready` → 接收 `input.text` → 发送 `response.chunk/done`。
-
-通过环境变量配置：
-
-```bash
+# 设置你的平台信息
 PLATFORM_URL=http://localhost:8080 \
 API_KEY=sk-local-test-key \
 AVATAR_ID=default-avatar \
 python -m liveavatar_channel_sdk.example.live_avatar_service_simulator
 ```
 
-## 集成流程
-
-入站和出站模式使用**完全相同的协议**，唯一区别在于谁发起 WebSocket 连接。
-
-### 出站模式（平台连接你）
-
-1. 在 Live Avatar 控制台注册你的 `wsEndpoint`（一次性配置）。
-2. 使用 `SessionClient` 调用 `POST /session/start`：
-   ```python
-   from liveavatar_channel_sdk import SessionClient
-   client = SessionClient(api_key="sk-...")
-   result = await client.start(avatar_id="avatar-123")
-   ```
-3. 平台连接到你的 `wsEndpoint`。
-4. 平台发送 `session.init` —— 通过监听器回复 `session.ready`。
-5. 通过 WebSocket 交换协议事件。
-6. 平台通过 HTTP 响应返回 `{sessionId, userToken, sfuUrl}`（将 `userToken` + `sfuUrl` 传递给前端）。
-
-### 入站模式（你连接平台）
-
-1. 在 Live Avatar 控制台启用入站模式（一次性）。
-2. 使用 `SessionClient` 调用 `POST /session/start` —— 响应中包含 `agentWsUrl`：
-   ```python
-   from liveavatar_channel_sdk import SessionClient, AvatarWebSocketClient
-   
-   client = SessionClient(api_key="sk-...")
-   result = await client.start(avatar_id="avatar-123")
-   
-   listener = MyListener()
-   ws = AvatarWebSocketClient(result.agent_ws_url, listener)
-   await ws.connect()
-   ```
-3. 平台发送 `session.init` —— 回复 `session.ready`。
-4. 将响应中的 `userToken` + `sfuUrl` 传递给前端。
-5. 通过 WebSocket 交换协议事件。
-
-## 运行测试
-
-```bash
-pytest
-# 显示详细输出
-pytest -s -v
-```
-
-## 架构说明
-
-```
-应用层   (AvatarChannelListener 回调)
-   ↓
-协议层   (message.py / audio_frame.py / image_frame.py + event_type.py)
-   ↓
-传输层   (AvatarWebSocketClient，基于 websockets 库)
-```
-
-### 两种连接模式
-
-| 模式 | 说明 |
-|---|---|
-| **出站模式（Outbound）** | 你的服务器暴露一个稳定的公网 WebSocket 端点，数字人服务主动连接。推荐用于生产环境。 |
-| **入站模式（Inbound）** | 数字人服务提供 WebSocket 地址，你的服务器作为客户端主动连接。 |
-
-### 核心类
-
-| 类 | 用途 |
-|---|---|
-| `AvatarWebSocketClient` | 管理连接生命周期、发送 JSON 文本和二进制帧、分发协议事件 |
-| `AvatarChannelListener` | 抽象基类，定义全部协议事件回调 |
-| `AvatarChannelListenerAdapter` | 空实现基类，只需覆盖关心的方法 |
-| `StreamingResponseHandler` | 对乱序到达的 `response.chunk` 进行缓冲，按序投递 |
-| `MessageBuilder` | 所有 JSON 协议消息的工厂类 |
-| `AudioFrameBuilder` | 9 字节头部二进制音频帧的流式构建器 |
-| `ImageFrameBuilder` | 12 字节头部二进制图像帧的流式构建器 |
-| `ExponentialBackoffStrategy` | 可选的自动重连（1s → 60s），默认关闭 |
-| `SessionManager` | 服务端异步安全的会话注册表 |
-| `SessionClient` | 用于 `POST /v1/session/start` 和 `/v1/session/stop` 的异步 REST 客户端 |
-| `SessionStartResult` | `/session/start` 的类型化响应（session_id、各类 token、URL） |
-| `SessionStartError` | 平台错误码（40001–40007）的结构化异常 |
-| `MessageSender` | 抽象混入类 —— 实现 `send_json`/`send_binary` 即可获得所有 `send_*()` 辅助方法 |
-| `WebSocketAdapter` | 将服务端 `fastapi.WebSocket` 包装为 `MessageSender`，供出站模式使用 |
-| `dispatch_text_event` | 共享函数，将每条协议文本事件路由到对应的监听器回调 |
+模拟器（`live_avatar_service_simulator.py`）展示完整流程：创建 `AgentListener`、连接 `AvatarAgent`、启动会话、逐词回显用户输入、最后优雅关闭。
 
 ## 协议概览
 
@@ -294,46 +270,53 @@ pytest -s -v
 
 示例：`session.init`、`input.text`、`response.chunk`、`control.interrupt`
 
-### 常用事件
+### 接收的事件（通过 AgentListener 回调）
 
-**平台 → 开发者**（开发者通过监听器回调接收）：
+| 事件 | 回调 | 说明 |
+|---|---|---|
+| `session.init` | `on_session_init` | 开启会话（SDK 自动回复 `session.ready`） |
+| `session.state` | `on_session_state` | 状态同步（含 `seq` 和 `timestamp`） |
+| `session.closing` | `on_session_closing` | 平台即将关闭（如超时） |
+| `input.text` | `on_text_input` | 用户文本输入或平台 ASR 最终结果 |
+| `system.idleTrigger` | `on_idle_trigger` | 数字人空闲（`reason`、`idle_time_ms`） |
+| `error` | `on_error` | 平台错误 |
+| *(二进制音频)* | `on_audio_frame` | 原始音频帧（仅开发者 ASR 模式） |
 
-| 事件 | 说明 |
-|---|---|
-| `session.init` | 开启会话（WS 连接后立即发送） |
-| `session.state` | 状态同步（`IDLE` / `LISTENING` / `THINKING` / `SPEAKING` / …） |
-| `session.closing` | 连接即将关闭（例如超时） |
-| `scene.ready` | JS SDK → 数字人，仅 LiveKit 数据通道 |
-| `input.text` | 用户文字输入（从前端转发） |
-| `response.audio.start` | TTS 音频开始 ——**平台提供 TTS 时由平台发送** |
-| `response.audio.finish` | TTS 音频结束 ——**平台提供 TTS 时由平台发送** |
-| `system.idleTrigger` | 数字人已空闲（`reason`、`idle_time_ms`） |
+### 发送的事件（通过 agent.send_*() 方法）
 
-**开发者 → 平台**（开发者通过 `client.send_*()` 或适配器发送）：
+| 事件 | 发送方法 | 说明 |
+|---|---|---|
+| `response.start` | `send_response_start` | 可选：配置 TTS 速度/音量/语气 |
+| `response.chunk` | `send_response_chunk` | 流式文本片段 |
+| `response.done` | `send_response_done` | 流式响应结束 |
+| `response.cancel` | `send_response_cancel` | 取消进行中的流 |
+| `response.audio.start` | `send_response_audio_start` | 开发者 TTS：音频开始 |
+| `response.audio.finish` | `send_response_audio_finish` | 开发者 TTS：音频结束 |
+| `response.audio.promptStart` | `send_prompt_audio_start` | 空闲提示音频开始 |
+| `response.audio.promptFinish` | `send_prompt_audio_finish` | 空闲提示音频结束 |
+| `input.voice.start` | `send_voice_start` | 开发者 ASR：语音活动开始 |
+| `input.voice.finish` | `send_voice_finish` | 开发者 ASR：语音活动结束 |
+| `input.asr.partial` | `send_asr_partial` | 开发者 ASR：部分识别结果 |
+| `input.asr.final` | `send_asr_final` | 开发者 ASR：最终识别结果 |
+| `control.interrupt` | `send_interrupt` | 主动打断（业务逻辑驱动） |
+| `system.prompt` | `send_prompt` | 推送空闲唤醒文本 |
+| `error` | `send_error` | 错误报告 |
 
-| 事件 | 说明 |
-|---|---|
-| `session.ready` | 握手应答 —— 收到 `session.init` 后**必须**发送 |
-| `session.stop` | 请求结束当前会话 |
-| `input.asr.partial` | 流式 ASR 结果（`final: false`）——**开发者提供 ASR 时发送（Omni 模式）** |
-| `input.asr.final` | 最终 ASR 结果 ——**开发者提供 ASR 时发送（Omni 模式）** |
-| `input.voice.start` | 语音活动开始 ——**开发者提供 ASR 时发送（Omni 模式）** |
-| `input.voice.finish` | 语音活动结束 ——**开发者提供 ASR 时发送（Omni 模式）** |
-| `response.start` | 可选：配置 TTS 参数（`speed`、`volume`、`mood`） |
-| `response.chunk` | 流式文本片段（含 `seq` 和 `timestamp`） |
-| `response.done` | 流式响应结束 |
-| `response.cancel` | 取消进行中的响应流 |
-| `response.audio.start` | TTS 音频开始 ——**开发者提供 TTS 时发送** |
-| `response.audio.finish` | TTS 音频结束 ——**开发者提供 TTS 时发送** |
-| `response.audio.promptStart` | 空闲提示音频开始前发送 |
-| `response.audio.promptFinish` | 空闲提示音频结束后发送 |
-| `control.interrupt` | 程序化打断（业务逻辑驱动）；输入驱动场景**无需**发送（平台在 `input.text` / `input.voice.start` 时自动清空） |
-| `system.prompt` | 推送空闲唤醒文本，触发 TTS 播放 |
-| `error` | 错误报告（`code`、`message`） |
+> **双向事件：** `input.asr.*` / `input.voice.*` 由 ASR 提供方发送（Omni 模式下由开发者发送，否则由平台发送）。SDK 同时提供监听器回调（接收）和发送辅助方法（发送）。当你的代码运行 ASR 时，在配置中设置 `developer_asr=True`。
 
-> **双向事件：** `input.asr.*` / `input.voice.*` 由 ASR 提供方发送（Omni 模式下由开发者发送，否则由平台发送）。`response.audio.*` 由 TTS 提供方发送（默认由平台发送，使用自定义 TTS 时由开发者发送）。SDK 同时提供这些事件的监听器回调（接收）和发送辅助方法（发送）。
+完整协议规范请参见 [`PROTOCOL.zh.md`](PROTOCOL.zh.md)。
 
-完整协议参考请查阅 [`PROTOCOL.md`](PROTOCOL.md)（或 [`PROTOCOL.zh.md`](PROTOCOL.zh.md)）。
+### 心跳
+
+WebSocket 原生 ping/pong 控制帧（RFC 6455，`0x9` / `0xA`）由 `websockets` 库自动处理，`ping_interval=5` 秒。
+
+## 运行测试
+
+```bash
+pytest
+# 显示详细输出
+pytest -s -v
+```
 
 ## 代码规范
 

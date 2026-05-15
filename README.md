@@ -2,19 +2,17 @@
 
 **English** | [中文](./README.zh.md)
 
-A Python SDK for the Live Avatar WebSocket protocol, supporting text, audio, and image communication between your server and a live avatar service.
+A Python SDK for the Live Avatar WebSocket protocol. Connect your AI backend to a live avatar service with text, audio, and image communication.
+
+**Version 0.2.0** -- simplified Agent API with just 3 public types.
 
 ## Requirements
 
 - Python 3.9+
 - `websockets >= 12`
-- `sortedcontainers`
 - `httpx >= 0.25`
 
-Optional (reference server only):
-
-- `fastapi >= 0.100`
-- `uvicorn >= 0.20`
+No other runtime dependencies.
 
 ## Installation
 
@@ -22,62 +20,75 @@ Optional (reference server only):
 # Editable install with all dev dependencies
 pip install -e ".[dev]"
 
-# With optional server dependencies
-pip install -e ".[dev,server]"
-
 # Or with uv
 uv sync
 ```
 
 ## Quick Start
 
+The SDK exposes three types:
+
+| Type | Purpose |
+|---|---|
+| `AvatarAgent` | Single entry point -- lifecycle (start/stop) and all 17 `send_*()` methods |
+| `AgentListener` | Callback interface -- override the events you care about (all methods are no-ops by default) |
+| `AvatarAgentConfig` | Configuration dataclass -- `api_key`, `avatar_id`, `base_url`, `sandbox`, `timeout`, `developer_tts`, `developer_asr`, `voice_id`, `reconnect` |
+
 ### 1. Implement a listener
 
-Subclass `AvatarChannelListenerAdapter` and override only the events you care about:
-
 ```python
-from liveavatar_channel_sdk import AvatarChannelListenerAdapter, SessionState
+from liveavatar_channel_sdk import AgentListener
 
-class MyListener(AvatarChannelListenerAdapter):
+class MyAgent(AgentListener):
+    async def on_text_input(self, text: str, request_id: str) -> None:
+        """Core callback: user text received."""
+        reply = await my_ai.chat(text)
+
+        # Stream the response back
+        await self.agent.send_response_start(request_id, "resp-1")
+        await self.agent.send_response_chunk(
+            request_id, "resp-1", seq=0, timestamp=0, text=reply,
+        )
+        await self.agent.send_response_done(request_id, "resp-1")
+
     async def on_session_init(self, session_id: str, user_id: str) -> None:
         print(f"Session opened: {session_id}  user: {user_id}")
-
-    async def on_input_text(self, request_id: str, text: str) -> None:
-        print(f"User said: {text}")
-        # Send a streaming response back through the client …
-
-    async def on_chunk_received(self, request_id, response_id, seq, text) -> None:
-        print(f"[{seq}] {text}", end="", flush=True)
 ```
 
-### 2. Connect and send messages
+### 2. Create the agent and start
 
 ```python
 import asyncio
-from liveavatar_channel_sdk import AvatarWebSocketClient, MessageBuilder
+from liveavatar_channel_sdk import AvatarAgent, AvatarAgentConfig
 
 async def main():
-    listener = MyListener()
-    client = AvatarWebSocketClient("ws://localhost:8080/avatar/ws", listener)
+    listener = MyAgent()
+    config = AvatarAgentConfig(
+        api_key="sk-...",
+        avatar_id="avatar-123",
+        # base_url defaults to https://facemarket.ai/vih/dispatcher
+        # sandbox=True   # adds X-Env-Sandbox header
+    )
+    agent = AvatarAgent(config, listener)
+    listener.agent = agent   # bidirectional reference
 
-    # Optional: enable auto-reconnect with exponential backoff (1s → 60s)
-    await client.enable_auto_reconnect()
+    result = await agent.start()   # REST + WS + auto session.ready handshake
+    print(f"Session: {result.session_id}")
+    print(f"User token: {result.user_token}")
+    print(f"SFU URL: {result.sfu_url}")
 
-    await client.connect()
+    # ... wait for callbacks ...
 
-    # Send a streaming response
-    await client.send_response_start("req-1", "resp-1")
-    await client.send_response_chunk("req-1", "resp-1", seq=0, timestamp=0, text="Hello ")
-    await client.send_response_chunk("req-1", "resp-1", seq=1, timestamp=40, text="world!")
-    await client.send_response_done("req-1", "resp-1")
-
-    await asyncio.sleep(1)
-    await client.disconnect()
+    await agent.stop()   # idempotent -- closes WS + calls /session/stop
 
 asyncio.run(main())
 ```
 
-### 3. Build binary frames
+That is the complete pattern. `start()` blocks until the `session.init` handshake completes (or a timeout occurs). The `session.ready` reply is sent automatically -- you do not need to send it manually.
+
+## Build Binary Frames
+
+You only need binary frames for **Developer TTS** mode (`AudioFrame`) or **multimodal image input** (`ImageFrame`).
 
 ```python
 from liveavatar_channel_sdk import AudioFrameBuilder, ImageFrameBuilder
@@ -94,7 +105,7 @@ audio_bytes = (
     .payload(pcm_data)
     .build()
 )
-await client.send_binary(audio_bytes)
+await agent.send_audio_frame(audio_bytes)
 
 # JPEG image frame
 image_bytes = (
@@ -106,183 +117,151 @@ image_bytes = (
     .payload(jpeg_data)
     .build()
 )
-await client.send_binary(image_bytes)
+# Send via WebSocket binary message (image frames are not yet exposed
+# as a dedicated send method -- use the internal transport directly
+# if needed).
 ```
 
-### 4. Manage sessions via REST API
+The raw `AudioFrame` dataclass is also available for direct construction:
 
 ```python
-from liveavatar_channel_sdk import SessionClient
+from liveavatar_channel_sdk import AudioFrame
 
-client = SessionClient(
-    api_key="sk-...",
-    # base_url defaults to https://facemarket.ai/vih/dispatcher
-    sandbox=True,  # True = adds X-Env-Sandbox header for testing
+frame = AudioFrame(
+    channel=0, seq=100, timestamp=5000,
+    sample_rate=0, samples=640, codec=0,
+    payload=pcm_data,
 )
-
-# Start a new session
-result = await client.start(avatar_id="avatar-123")
-print(result.session_id, result.agent_ws_url, result.user_token)
-
-# Reconnect to an existing session
-result = await client.start(avatar_id="avatar-123", session_id="sess-old")
-
-# Stop a session
-await client.stop(session_id=result.session_id)
-
-# Release resources
-await client.close()
+packed = frame.pack()   # bytes (9-byte header + payload)
 ```
 
-### 5. Outbound mode server (FastAPI)
+## Send Methods
 
-```python
-from fastapi import FastAPI, WebSocket
-from liveavatar_channel_sdk import (
-    AvatarChannelListenerAdapter, WebSocketAdapter, dispatch_text_event
-)
+All send methods are available on `AvatarAgent`. They are grouped by protocol role.
 
-app = FastAPI()
+### Platform TTS (default -- platform renders audio from text)
 
-class MyOutboundListener(AvatarChannelListenerAdapter):
-    def __init__(self, adapter: WebSocketAdapter):
-        self._adapter = adapter
+| Method | Event | Description |
+|---|---|---|
+| `send_response_start(request_id, response_id, *, speed, volume, mood)` | `response.start` | Optional: configure TTS parameters before streaming |
+| `send_response_chunk(request_id, response_id, seq, timestamp, text)` | `response.chunk` | Streaming text chunk |
+| `send_response_done(request_id, response_id)` | `response.done` | End of streaming response |
+| `send_response_cancel(response_id)` | `response.cancel` | Cancel an in-progress response stream |
 
-    async def on_session_init(self, session_id, user_id):
-        await self._adapter.send_session_ready()
+### Developer TTS (you provide audio frames directly)
 
-    async def on_input_text(self, request_id, text):
-        # Stream response back through the adapter
-        await self._adapter.send_response_start(request_id, "resp-1")
-        await self._adapter.send_response_chunk(request_id, "resp-1", 0, 0, text)
-        await self._adapter.send_response_done(request_id, "resp-1")
+| Method | Event | Description |
+|---|---|---|
+| `send_response_audio_start(request_id, response_id)` | `response.audio.start` | Signal that audio output is starting |
+| `send_audio_frame(frame: AudioFrame)` | *(binary)* | Send a binary audio frame (9-byte header + PCM/Opus) |
+| `send_response_audio_finish(request_id, response_id)` | `response.audio.finish` | Signal that audio output finished |
+| `send_prompt_audio_start()` | `response.audio.promptStart` | Idle-prompt audio starting |
+| `send_prompt_audio_finish()` | `response.audio.promptFinish` | Idle-prompt audio finished |
 
-@app.websocket("/avatar/ws")
-async def outbound_ws(ws: WebSocket):
-    await ws.accept()
-    adapter = WebSocketAdapter(ws)
-    listener = MyOutboundListener(adapter)
-    async for raw in ws.iter_text():
-        await dispatch_text_event(raw, listener)
+### Developer ASR / Omni (you run ASR + VAD on raw audio)
+
+| Method | Event | Description |
+|---|---|---|
+| `send_voice_start(request_id)` | `input.voice.start` | Voice activity detected |
+| `send_asr_partial(request_id, text, seq)` | `input.asr.partial` | Streaming ASR result (partial) |
+| `send_voice_finish(request_id)` | `input.voice.finish` | Voice activity ended |
+| `send_asr_final(request_id, text)` | `input.asr.final` | Final ASR result |
+
+### Control
+
+| Method | Event | Description |
+|---|---|---|
+| `send_interrupt(request_id=None)` | `control.interrupt` | Proactive, business-logic-driven interrupt. Optional `request_id` for precise targeting. |
+| `send_prompt(text)` | `system.prompt` | Push idle-wakeup text for TTS playback |
+
+### Error
+
+| Method | Event | Description |
+|---|---|---|
+| `send_error(code, message, request_id=None)` | `error` | Report an error to the platform |
+
+## Listener Callbacks
+
+Override these on `AgentListener`. All are `async` with default no-op implementations.
+
+| Callback | Trigger | When to override |
+|---|---|---|
+| `on_text_input(text, request_id)` | User text received (typing or platform ASR) | **Core** -- respond to user messages here |
+| `on_session_init(session_id, user_id)` | Handshake complete | Logging, metrics |
+| `on_session_state(state: SessionState)` | Session state changed | UI sync, debugging |
+| `on_session_closing(reason)` | Platform about to close connection | Graceful shutdown |
+| `on_idle_trigger(reason, idle_time_ms)` | Prolonged user inactivity | Send idle-wakeup prompt |
+| `on_audio_frame(frame: AudioFrame)` | Raw binary audio from platform | Developer ASR mode only |
+| `on_error(code, message)` | Error from platform or transport | Error handling / fallback |
+| `on_closed(code, reason)` | WebSocket connection closed | Cleanup, reconnect logic |
+
+## AvatarAgentConfig
+
+| Field | Default | Description |
+|---|---|---|
+| `api_key` | *(required)* | Platform API Key (server-side only) |
+| `avatar_id` | *(required)* | Unique avatar identifier |
+| `base_url` | `https://facemarket.ai/vih/dispatcher` | Platform base URL |
+| `sandbox` | `False` | Enable sandbox mode (adds `X-Env-Sandbox` header) |
+| `timeout` | `30.0` | HTTP request + handshake timeout in seconds |
+| `developer_tts` | `False` | Set to `True` when you provide TTS audio frames |
+| `developer_asr` | `False` | Set to `True` when you run ASR + VAD (Omni mode) |
+| `voice_id` | `None` | Override the avatar's default voice |
+| `reconnect` | `False` | Enable auto-reconnect on disconnect |
+| `reconnect_base_delay` | `1.0` | Base delay for exponential backoff (seconds) |
+| `reconnect_max_delay` | `60.0` | Maximum delay for exponential backoff (seconds) |
+
+## Architecture
+
+```
+Developer code (implements AgentListener, calls agent.start() / agent.send_*())
+    |
+    v
+AvatarAgent  (single entry point: lifecycle, REST, WS, event dispatch)
+    |         internal: _AvatarWsClient / MessageBuilder / AudioFrameBuilder
+    v
+Platform (Live Avatar Service)
 ```
 
-## Running the Reference Server
+The SDK handles everything inside `start()`:
 
-The reference server demonstrates **Outbound mode** — your server exposes a WebSocket endpoint that the platform connects to.
+1. Creates an HTTPX client with your API Key.
+2. Calls `POST /v1/session/start` with your `avatar_id`.
+3. Connects to the returned `agentWsUrl` via WebSocket.
+4. Waits for `session.init` and replies `session.ready` automatically.
+5. Dispatches incoming events to your `AgentListener` callbacks.
+6. `stop()` disconnects the WebSocket and calls `POST /v1/session/stop`.
+
+### Session States
+
+The platform sends `session.state` events as the session transitions. States are defined in `SessionState`:
+
+| State | Speaker | System Behaviour |
+|---|---|---|
+| `IDLE` | -- | Waiting for input |
+| `LISTENING` | User | ASR active |
+| `THINKING` | System (brain) | LLM / TTS preparing |
+| `STAGING` | System (body) | Avatar render preparing |
+| `SPEAKING` | System (body) | Avatar outputting response |
+| `PROMPT_THINKING` | System (brain) | Preparing idle-wakeup script |
+| `PROMPT_STAGING` | System (body) | Avatar render preparing (prompt) |
+| `PROMPT_SPEAKING` | System (body) | Avatar playing idle-wakeup audio |
+
+## Running the Example
+
+The SDK includes a simulator that demonstrates the Agent pattern end-to-end.
+
+You need a running platform endpoint. For local testing you can point it at any server that implements the Live Avatar WebSocket protocol.
 
 ```bash
-uvicorn liveavatar_channel_server_example.main:app --host 0.0.0.0 --port 8080
-```
-
-**Endpoints:**
-
-| Endpoint | Purpose |
-|---|---|
-| `GET /avatar/ws` | Outbound mode WS endpoint — the platform connects here after you call `POST /session/start` |
-| `POST /avatar/session/start` | Mock REST API — simulates the platform's session initiation endpoint for local testing |
-| `GET /avatar/platform-ws/{session_id}` | Platform simulator WS — sends `session.init` / `input.text` so the Inbound client can test locally |
-
-## Running the Inbound Client Example
-
-The client simulator demonstrates **Inbound mode** — your server calls `POST /session/start` to get an `agentWsUrl`, then connects to the platform as a WebSocket client.
-
-In a second terminal (while the server is running):
-
-```bash
-python -m liveavatar_channel_sdk.example.live_avatar_service_simulator
-```
-
-**Flow:** REST call → get `agentWsUrl` → connect → receive `session.init` → send `session.ready` → receive `input.text` → send `response.chunk/done`.
-
-Configuration via environment variables:
-
-```bash
+# Set your platform details
 PLATFORM_URL=http://localhost:8080 \
 API_KEY=sk-local-test-key \
 AVATAR_ID=default-avatar \
 python -m liveavatar_channel_sdk.example.live_avatar_service_simulator
 ```
 
-## Integration Flow
-
-Both Inbound and Outbound modes use the **same protocol**. The only difference is who initiates the WebSocket connection.
-
-### Outbound Mode (platform connects to you)
-
-1. Register your `wsEndpoint` in the Live Avatar console (one-time config).
-2. Call `POST /session/start` with your API Key via `SessionClient`:
-   ```python
-   from liveavatar_channel_sdk import SessionClient
-   client = SessionClient(api_key="sk-...")
-   result = await client.start(avatar_id="avatar-123")
-   ```
-3. The platform connects to your registered `wsEndpoint`.
-4. Platform sends `session.init` — reply with `session.ready` via your listener.
-5. Exchange protocol events over the WebSocket.
-6. Platform returns `{sessionId, userToken, sfuUrl}` — deliver `userToken` + `sfuUrl` to your frontend.
-
-### Inbound Mode (you connect to platform)
-
-1. Enable Inbound mode in the Live Avatar console (one-time).
-2. Call `POST /session/start` with your API Key — response includes `agentWsUrl`:
-   ```python
-   from liveavatar_channel_sdk import SessionClient, AvatarWebSocketClient
-   
-   client = SessionClient(api_key="sk-...")
-   result = await client.start(avatar_id="avatar-123")
-   
-   listener = MyListener()
-   ws = AvatarWebSocketClient(result.agent_ws_url, listener)
-   await ws.connect()
-   ```
-3. Platform sends `session.init` — reply with `session.ready`.
-4. Deliver `userToken` + `sfuUrl` from the response to your frontend.
-5. Exchange protocol events over the WebSocket.
-
-## Running Tests
-
-```bash
-pytest
-# With output
-pytest -s -v
-```
-
-## Architecture
-
-```
-Application  (AvatarChannelListener callbacks)
-     ↓
-Protocol     (message.py / audio_frame.py / image_frame.py + event_type.py)
-     ↓
-Transport    (AvatarWebSocketClient via websockets)
-```
-
-### Two Connection Modes
-
-| Mode | Description |
-|---|---|
-| **Outbound** | Your server exposes a stable public WebSocket endpoint; the avatar service connects to it. Preferred for production. |
-| **Inbound** | The avatar service provides the WebSocket URL; your server connects to it as a client. |
-
-### Key Classes
-
-| Class | Purpose |
-|---|---|
-| `AvatarWebSocketClient` | Manages lifecycle, sends JSON text and binary frames, dispatches events |
-| `AvatarChannelListener` | Abstract base — all protocol event callbacks |
-| `AvatarChannelListenerAdapter` | No-op base — subclass and override only what you need |
-| `StreamingResponseHandler` | In-order delivery of out-of-order `response.chunk` frames |
-| `MessageBuilder` | Fluent factory for all JSON protocol messages |
-| `AudioFrameBuilder` | Fluent builder for 9-byte-header binary audio frames |
-| `ImageFrameBuilder` | Fluent builder for 12-byte-header binary image frames |
-| `ExponentialBackoffStrategy` | Optional auto-reconnect (1 s → 60 s); disabled by default |
-| `SessionManager` | Server-side async-safe session registry |
-| `SessionClient` | Async REST client for `POST /v1/session/start` and `/v1/session/stop` |
-| `SessionStartResult` | Typed response from `/session/start` (session_id, tokens, URLs) |
-| `SessionStartError` | Structured exception for platform error codes (40001–40007) |
-| `MessageSender` | ABC mixin — implement `send_json`/`send_binary` to get all `send_*()` helpers |
-| `WebSocketAdapter` | Wraps a server-side `fastapi.WebSocket` as a `MessageSender` for Outbound mode |
-| `dispatch_text_event` | Shared function routing every protocol text event to listener callbacks |
+The simulator (`live_avatar_service_simulator.py`) shows the full pattern: it creates an `AgentListener`, wires it to an `AvatarAgent`, starts the session, echoes user input word-by-word, then stops cleanly.
 
 ## Protocol Overview
 
@@ -294,46 +273,53 @@ All text messages are JSON with a three-segment event type:
 
 Examples: `session.init`, `input.text`, `response.chunk`, `control.interrupt`
 
-### Common Events
+### Events Received (via AgentListener callbacks)
 
-**Platform → Developer** (developer receives via listener callbacks):
+| Event | Callback | Description |
+|---|---|---|
+| `session.init` | `on_session_init` | Open session (SDK auto-replies `session.ready`) |
+| `session.state` | `on_session_state` | State sync with `seq` and `timestamp` |
+| `session.closing` | `on_session_closing` | Platform about to close (e.g. timeout) |
+| `input.text` | `on_text_input` | User typed text or platform ASR final result |
+| `system.idleTrigger` | `on_idle_trigger` | Avatar has been idle (`reason`, `idle_time_ms`) |
+| `error` | `on_error` | Error from platform |
+| *(binary audio)* | `on_audio_frame` | Raw audio frame (Developer ASR mode only) |
 
-| Event | Description |
-|---|---|
-| `session.init` | Open session (sent immediately after WS connects) |
-| `session.state` | State sync (`IDLE` / `LISTENING` / `THINKING` / `SPEAKING` / …) |
-| `session.closing` | Connection about to close (e.g. timeout) |
-| `scene.ready` | JS SDK → avatar, LiveKit DataChannel only |
-| `input.text` | User typed text (forwarded from frontend) |
-| `response.audio.start` | TTS audio starting — **sent by platform when platform provides TTS** |
-| `response.audio.finish` | TTS audio finished — **sent by platform when platform provides TTS** |
-| `system.idleTrigger` | Avatar has been idle (`reason`, `idle_time_ms`) |
+### Events Sent (via agent.send_*() methods)
 
-**Developer → Platform** (developer sends via `client.send_*()` or adapter):
+| Event | Send Method | Description |
+|---|---|---|
+| `response.start` | `send_response_start` | Optional: configure TTS speed/volume/mood |
+| `response.chunk` | `send_response_chunk` | Streaming text chunk |
+| `response.done` | `send_response_done` | End of streaming response |
+| `response.cancel` | `send_response_cancel` | Cancel an in-progress stream |
+| `response.audio.start` | `send_response_audio_start` | Developer TTS: audio starting |
+| `response.audio.finish` | `send_response_audio_finish` | Developer TTS: audio finished |
+| `response.audio.promptStart` | `send_prompt_audio_start` | Idle-prompt audio starting |
+| `response.audio.promptFinish` | `send_prompt_audio_finish` | Idle-prompt audio finished |
+| `input.voice.start` | `send_voice_start` | Developer ASR: voice activity start |
+| `input.voice.finish` | `send_voice_finish` | Developer ASR: voice activity end |
+| `input.asr.partial` | `send_asr_partial` | Developer ASR: partial recognition |
+| `input.asr.final` | `send_asr_final` | Developer ASR: final recognition |
+| `control.interrupt` | `send_interrupt` | Proactive interrupt (business-logic-driven) |
+| `system.prompt` | `send_prompt` | Push idle-wakeup text |
+| `error` | `send_error` | Error report |
 
-| Event | Description |
-|---|---|
-| `session.ready` | Handshake response — **must** send after `session.init` |
-| `session.stop` | Request to end the current session |
-| `input.asr.partial` | Streaming ASR result (`final: false`) — **when developer provides ASR (Omni mode)** |
-| `input.asr.final` | Final ASR result — **when developer provides ASR (Omni mode)** |
-| `input.voice.start` | Voice activity start — **when developer provides ASR (Omni mode)** |
-| `input.voice.finish` | Voice activity end — **when developer provides ASR (Omni mode)** |
-| `response.start` | Optional: configure TTS params (`speed`, `volume`, `mood`) |
-| `response.chunk` | Streaming text chunk with `seq` and `timestamp` |
-| `response.done` | End of streaming response |
-| `response.cancel` | Cancel an in-progress response stream |
-| `response.audio.start` | TTS audio starting — **when developer provides TTS** |
-| `response.audio.finish` | TTS audio finished — **when developer provides TTS** |
-| `response.audio.promptStart` | Sent before idle-prompt audio starts |
-| `response.audio.promptFinish` | Sent after idle-prompt audio finishes |
-| `control.interrupt` | Programmatic interrupt for business-logic-driven stops; **not** needed for input-driven flows (platform auto-clears on `input.text` / `input.voice.start`) |
-| `system.prompt` | Push idle-wakeup text for TTS playback |
-| `error` | Error report with `code` and `message` |
+> **Bidirectional events:** `input.asr.*` / `input.voice.*` are sent by whoever provides ASR (developer in Omni mode, platform otherwise). The SDK provides both listener callbacks (receive) and send helpers (transmit) for these events. Set `developer_asr=True` in your config when your code runs ASR.
 
-> **Bidirectional events:** `input.asr.*` / `input.voice.*` are sent by whoever provides ASR (developer in Omni mode, platform otherwise). `response.audio.*` events are sent by whoever provides TTS (platform by default, developer when using custom TTS). The SDK provides both listener callbacks (receive) and send helpers (transmit) for these events.
+For the full protocol specification see [`PROTOCOL.md`](PROTOCOL.md).
 
-For the full protocol reference see [`PROTOCOL.md`](PROTOCOL.md).
+### Heartbeat
+
+WebSocket native ping/pong control frames (RFC 6455, `0x9` / `0xA`) are handled automatically by the `websockets` library with `ping_interval=5` s.
+
+## Running Tests
+
+```bash
+pytest
+# With output
+pytest -s -v
+```
 
 ## Linting & Formatting
 
