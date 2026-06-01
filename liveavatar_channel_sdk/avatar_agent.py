@@ -382,6 +382,32 @@ class AvatarAgent:
             MessageBuilder.error(code, message, request_id)
         )
 
+    # -- send: custom event -------------------------------------------------
+
+    async def send_custom_event(
+        self,
+        request_id: str | None,
+        event: str,
+        data: dict | None = None,
+    ) -> None:
+        """Send a custom event not predefined in the standard protocol.
+
+        The *event* string and *data* dict are passed through as-is.
+        Use this for experimental or application-specific events
+        without modifying the SDK.
+
+        Args:
+            request_id: Optional request identifier.
+            event:      Event type name, e.g. ``"my.custom.event"``.
+            data:       Event payload dict (must be JSON-serializable).
+        """
+        message: dict = {"event": event}
+        if request_id is not None:
+            message["requestId"] = request_id
+        if data is not None:
+            message["data"] = data
+        await self._require_ws().send_json(message)
+
 
 # ------------------------------------------------------------------
 # Internal bridge — adapts AgentListener to _AgentCallbacks Protocol
