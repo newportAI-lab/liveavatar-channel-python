@@ -4,17 +4,15 @@
 
 用于 Live Avatar WebSocket 协议的 Python SDK。将你的 AI 后端连接到实时数字人服务，支持文本、音频和图像通信。
 
-**版本 0.2.0** —— 简化的 Agent API，仅需 3 个公开类型。
-
-## 环境要求
-
-- Python 3.9+
-- `websockets >= 12`
-- `httpx >= 0.25`
-
-无其他运行时依赖。
+**版本 0.2.2** — 简化的 Agent API，仅少量公开类型。
 
 ## 安装
+
+```bash
+pip install liveavatar-channel-sdk
+```
+
+## 开发模式安装
 
 ```bash
 # 以可编辑模式安装（包含所有开发依赖）
@@ -24,15 +22,25 @@ pip install -e ".[dev]"
 uv sync
 ```
 
+## 环境要求
+
+- Python 3.9+
+- `websockets >= 12`
+- `httpx >= 0.25`
+
+无其他运行时依赖。
+
 ## 快速开始
 
-SDK 提供三种核心类型：
+SDK 的核心公开类型：
 
 | 类型 | 用途 |
 |---|---|
 | `AvatarAgent` | 单一入口 —— 生命周期（start/stop）和全部 17 个 `send_*()` 方法 |
 | `AgentListener` | 回调接口 —— 覆盖你关心的事件（所有方法默认空实现） |
 | `AvatarAgentConfig` | 配置数据类 —— `api_key`、`avatar_id`、`base_url`、`sandbox`、`timeout`、`developer_tts`、`developer_asr`、`voice_id`、`reconnect` |
+
+其他类型：`AudioFrame`、`AudioFrameBuilder`、`ImageFrame`、`ImageFrameBuilder`、`SessionState`、`EventType`、`SessionStartResult`、`ErrorCode` 等也可从顶层包直接导入。
 
 ### 1. 实现监听器
 

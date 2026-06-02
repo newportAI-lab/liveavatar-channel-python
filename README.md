@@ -4,17 +4,15 @@
 
 A Python SDK for the Live Avatar WebSocket protocol. Connect your AI backend to a live avatar service with text, audio, and image communication.
 
-**Version 0.2.0** -- simplified Agent API with just 3 public types.
-
-## Requirements
-
-- Python 3.9+
-- `websockets >= 12`
-- `httpx >= 0.25`
-
-No other runtime dependencies.
+**Version 0.2.2** — simplified Agent API with a minimal set of public types.
 
 ## Installation
+
+```bash
+pip install liveavatar-channel-sdk
+```
+
+## Development Install
 
 ```bash
 # Editable install with all dev dependencies
@@ -24,15 +22,25 @@ pip install -e ".[dev]"
 uv sync
 ```
 
+## Requirements
+
+- Python 3.9+
+- `websockets >= 12`
+- `httpx >= 0.25`
+
+No other runtime dependencies.
+
 ## Quick Start
 
-The SDK exposes three types:
+The SDK's core public types:
 
 | Type | Purpose |
 |---|---|
 | `AvatarAgent` | Single entry point -- lifecycle (start/stop) and all 17 `send_*()` methods |
 | `AgentListener` | Callback interface -- override the events you care about (all methods are no-ops by default) |
 | `AvatarAgentConfig` | Configuration dataclass -- `api_key`, `avatar_id`, `base_url`, `sandbox`, `timeout`, `developer_tts`, `developer_asr`, `voice_id`, `reconnect` |
+
+Additional types: `AudioFrame`, `AudioFrameBuilder`, `ImageFrame`, `ImageFrameBuilder`, `SessionState`, `EventType`, `SessionStartResult`, `ErrorCode`, and more are also available from the top-level package.
 
 ### 1. Implement a listener
 

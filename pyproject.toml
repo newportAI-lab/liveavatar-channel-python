@@ -4,14 +4,30 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "liveavatar-channel-sdk"
-version = "0.2.1"
+version = "0.2.2"
 description = "Live Avatar Channel SDK - Python WebSocket protocol for live avatar communication"
 readme = {file = "README.md", content-type = "text/markdown"}
 requires-python = ">=3.9"
-license = {text = "MIT"}
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 authors = [
     {name = "Live Avatar Team"}
 ]
+
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+]
+keywords = ["live-avatar", "digital-human", "websocket", "tts", "asr", "avatar"]
 
 dependencies = [
     "websockets>=12",
