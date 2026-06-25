@@ -4,7 +4,7 @@
 
 A Python SDK for the Live Avatar WebSocket protocol. Connect your AI backend to a live avatar service with text, audio, and image communication.
 
-**Version 0.2.2** — simplified Agent API with a minimal set of public types.
+**Version 0.2.3** — simplified Agent API with a minimal set of public types.
 
 ## Installation
 
@@ -38,7 +38,7 @@ The SDK's core public types:
 |---|---|
 | `AvatarAgent` | Single entry point -- lifecycle (start/stop) and all 17 `send_*()` methods |
 | `AgentListener` | Callback interface -- override the events you care about (all methods are no-ops by default) |
-| `AvatarAgentConfig` | Configuration dataclass -- `api_key`, `avatar_id`, `base_url`, `sandbox`, `timeout`, `developer_tts`, `developer_asr`, `voice_id`, `reconnect` |
+| `AvatarAgentConfig` | Configuration dataclass -- `api_key`, `avatar_id`, `base_url`, `sandbox`, `timeout`, `developer_tts`, `developer_asr`, `voice_id`, `voice_config`, `reconnect` |
 
 Additional types: `AudioFrame`, `AudioFrameBuilder`, `ImageFrame`, `ImageFrameBuilder`, `SessionState`, `EventType`, `SessionStartResult`, `ErrorCode`, and more are also available from the top-level package.
 
@@ -215,9 +215,29 @@ Override these on `AgentListener`. All are `async` with default no-op implementa
 | `developer_tts` | `False` | Set to `True` when you provide TTS audio frames |
 | `developer_asr` | `True` | Developer runs ASR + VAD by default; set to `False` for platform ASR |
 | `voice_id` | `None` | Override the avatar's default voice |
+| `voice_config` | `None` | Optional `/session/start` voice settings: `volume`, `speed`, `stability`, `similarity_boost`, `style`, `pitch` |
 | `reconnect` | `False` | Enable auto-reconnect on disconnect |
 | `reconnect_base_delay` | `1.0` | Base delay for exponential backoff (seconds) |
 | `reconnect_max_delay` | `60.0` | Maximum delay for exponential backoff (seconds) |
+
+Example:
+
+```python
+config = AvatarAgentConfig(
+    api_key="sk-...",
+    avatar_id="avatar-123",
+    voice_config={
+        "volume": 80,
+        "speed": 1.25,
+        "stability": 0.6,
+        "similarity_boost": 0.7,
+        "style": 0.2,
+        "pitch": 1.1,
+    },
+)
+```
+
+The SDK sends this as `voiceConfig` in `/session/start`; `similarity_boost` is serialized as `similarityBoost`.
 
 ## Architecture
 

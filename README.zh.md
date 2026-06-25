@@ -4,7 +4,7 @@
 
 用于 Live Avatar WebSocket 协议的 Python SDK。将你的 AI 后端连接到实时数字人服务，支持文本、音频和图像通信。
 
-**版本 0.2.2** — 简化的 Agent API，仅少量公开类型。
+**版本 0.2.3** — 简化的 Agent API，仅少量公开类型。
 
 ## 安装
 
@@ -38,7 +38,7 @@ SDK 的核心公开类型：
 |---|---|
 | `AvatarAgent` | 单一入口 —— 生命周期（start/stop）和全部 17 个 `send_*()` 方法 |
 | `AgentListener` | 回调接口 —— 覆盖你关心的事件（所有方法默认空实现） |
-| `AvatarAgentConfig` | 配置数据类 —— `api_key`、`avatar_id`、`base_url`、`sandbox`、`timeout`、`developer_tts`、`developer_asr`、`voice_id`、`reconnect` |
+| `AvatarAgentConfig` | 配置数据类 —— `api_key`、`avatar_id`、`base_url`、`sandbox`、`timeout`、`developer_tts`、`developer_asr`、`voice_id`、`voice_config`、`reconnect` |
 
 其他类型：`AudioFrame`、`AudioFrameBuilder`、`ImageFrame`、`ImageFrameBuilder`、`SessionState`、`EventType`、`SessionStartResult`、`ErrorCode` 等也可从顶层包直接导入。
 
@@ -212,9 +212,29 @@ packed = frame.pack()   # bytes（9 字节头部 + 负载）
 | `developer_tts` | `False` | 当你提供 TTS 音频帧时设为 `True` |
 | `developer_asr` | `True` | 默认由开发者运行 ASR + VAD；设为 `False` 使用平台 ASR |
 | `voice_id` | `None` | 覆盖数字人的默认音色 |
+| `voice_config` | `None` | 可选的 `/session/start` 音色参数：`volume`、`speed`、`stability`、`similarity_boost`、`style`、`pitch` |
 | `reconnect` | `False` | 断开时启用自动重连 |
 | `reconnect_base_delay` | `1.0` | 指数退避的基础延迟（秒） |
 | `reconnect_max_delay` | `60.0` | 指数退避的最大延迟（秒） |
+
+示例：
+
+```python
+config = AvatarAgentConfig(
+    api_key="sk-...",
+    avatar_id="avatar-123",
+    voice_config={
+        "volume": 80,
+        "speed": 1.25,
+        "stability": 0.6,
+        "similarity_boost": 0.7,
+        "style": 0.2,
+        "pitch": 1.1,
+    },
+)
+```
+
+SDK 会在 `/session/start` 请求中发送 `voiceConfig`；其中 `similarity_boost` 会序列化为 `similarityBoost`。
 
 ## 架构说明
 

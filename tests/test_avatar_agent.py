@@ -362,6 +362,59 @@ async def test_rest_start_with_voice_id(agent_with_config: AvatarAgent, httpx_mo
 
 
 @pytest.mark.asyncio
+async def test_rest_start_with_voice_config(httpx_mock):
+    config = AvatarAgentConfig(
+        api_key="sk-test",
+        avatar_id="avatar-1",
+        base_url="https://test.example.com",
+        voice_config={
+            "volume": 80,
+            "speed": 1.25,
+            "stability": 0.6,
+            "similarity_boost": 0.7,
+            "style": 0.2,
+            "pitch": 1.1,
+        },
+    )
+    agent = AvatarAgent(config, AgentListener())
+    body_capture = {}
+
+    def capture_body(request):
+        body_capture.update(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={
+                "code": 0,
+                "message": "success",
+                "data": {"sessionId": "s", "sfuUrl": "u", "userToken": "t"},
+            },
+        )
+
+    httpx_mock.add_callback(
+        capture_body,
+        url="https://test.example.com/v1/session/start",
+        method="POST",
+    )
+
+    agent._http_client = httpx.AsyncClient(
+        base_url="https://test.example.com",
+        headers={"Authorization": "Bearer sk-test"},
+    )
+    try:
+        await agent._rest_start()
+        assert body_capture["voiceConfig"] == {
+            "volume": 80,
+            "speed": 1.25,
+            "stability": 0.6,
+            "similarityBoost": 0.7,
+            "style": 0.2,
+            "pitch": 1.1,
+        }
+    finally:
+        await agent._http_client.aclose()
+
+
+@pytest.mark.asyncio
 async def test_rest_start_sandbox_header(httpx_mock):
     config = AvatarAgentConfig(
         api_key="sk-test",

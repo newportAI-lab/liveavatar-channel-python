@@ -48,6 +48,18 @@ _ERROR_CODE_MAP: dict[int, ErrorCode] = {
     40007: ErrorCode.SESSION_ACCESS_DENIED,
 }
 
+_VOICE_CONFIG_KEY_MAP = {
+    "similarity_boost": "similarityBoost",
+}
+
+
+def _serialize_voice_config(voice_config: dict[str, int | float | None]) -> dict:
+    return {
+        _VOICE_CONFIG_KEY_MAP.get(key, key): value
+        for key, value in voice_config.items()
+        if value is not None
+    }
+
 
 # ------------------------------------------------------------------
 # AgentListener
@@ -104,6 +116,7 @@ class AvatarAgentConfig:
         developer_tts:      Developer provides TTS output.
         developer_asr:      Developer runs ASR + VAD.
         voice_id:           Override avatar default voice.
+        voice_config:       Optional voice settings for /session/start.
         reconnect:          Enable auto-reconnect on disconnect.
         reconnect_base_delay:  Base delay for exponential backoff (s).
         reconnect_max_delay:  Max delay for exponential backoff (s).
@@ -117,6 +130,7 @@ class AvatarAgentConfig:
     developer_tts: bool = False
     developer_asr: bool = True
     voice_id: str | None = None
+    voice_config: dict[str, int | float | None] | None = None
     reconnect: bool = False
     reconnect_base_delay: float = 1.0
     reconnect_max_delay: float = 60.0
@@ -238,6 +252,8 @@ class AvatarAgent:
         body: dict = {"avatarId": self._config.avatar_id}
         if self._config.voice_id is not None:
             body["voiceId"] = self._config.voice_id
+        if self._config.voice_config:
+            body["voiceConfig"] = _serialize_voice_config(self._config.voice_config)
 
         resp = await self._http_client.post("/v1/session/start", json=body)
         resp.raise_for_status()
