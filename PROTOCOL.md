@@ -1,6 +1,10 @@
 # Protocol Overview
 
+**English** | [中文](./PROTOCOL.zh.md)
+
 This protocol defines the WebSocket communication between the Live Avatar platform (coordinator) and developer services (agent), covering text, audio, and image content.
+
+> This document applies to `mode: "websocketAgent"`. The avatar configuration determines whether ASR/TTS is provided by the platform or by the developer, and `/session/start` may omit `mode` if WebSocket Agent is the Avatar default mode.
 
 ## Design Goals
 
@@ -80,9 +84,10 @@ sequenceDiagram
     participant RTC as RTC Room (SFU)
     participant Avatar as Avatar Engine
 
-    AppServer->>Platform: /session/start (API Key)
+    AppServer->>Platform: /session/start { avatarId, mode: "websocketAgent" } (API Key)
     Platform->>Avatar: Start avatar
-    Avatar->>RTC: Join room
+    Avatar->>RTC: Join room (identity: renderer_{sessionId})
+    Platform->>RTC: Join room (identity: coordinator_{sessionId})
     Avatar->>Platform: Start complete
     Platform->>AppServer: { sessionId, userToken, agentWsUrl, sfuUrl }
     AppServer-->>Platform: Establish WebSocket connection via agentWsUrl
@@ -95,10 +100,10 @@ sequenceDiagram
     Platform-->>RTC: Subscribe to user text/audio stream
     Platform->>AppServer: Forward to developer backend via WebSocket
 
-    alt Text mode
+    alt Platform TTS configured
         AppServer-->>Avatar: Return reply text
         Avatar->>Avatar: Internal TTS conversion
-    else Audio mode
+    else Developer TTS
         AppServer-->>Avatar: Return reply audio stream
     end
 
@@ -110,7 +115,24 @@ sequenceDiagram
 >
 > `sessionToken` (obtained via `/auth/session/token`) is only used in fully managed mode, where the **frontend** calls `/session/start` directly and the backend acts as a token relay — keeping the API Key off the client while avoiding deep backend involvement.
 >
-> In WebSocket Agent and RTC modes, the **developer backend** calls `/session/start` directly with an API Key and receives `userToken + sfuUrl` to distribute to the frontend. A `sessionToken` is **not required**.
+> In WebSocket Agent and RTC Agent modes, the **developer backend** calls `/session/start` directly with an API Key and receives `userToken + sfuUrl` to distribute to the frontend. A `sessionToken` is **not required**.
+
+---
+
+## WebSocket Agent Capability Configuration
+
+The following options are configured on the Avatar.
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `asrProvider` | `developer` | `developer` means the platform forwards user audio as Binary Frames; `platform` means the platform uses platform ASR and forwards `input.asr.*` plus ASR-derived `input.voice.*` events. |
+| `ttsProvider` | `developer` | `developer` means the developer returns `response.audio.*` and audio Binary Frames; `platform` means the developer may return text via `response.chunk` / `response.done`, and the platform TTS drives the Avatar. |
+| `asrSampleRate` | `16000` | Sample rate of user audio forwarded to developer ASR, in Hz. |
+| `ttsSampleRate` | `24000` | Sample rate expected for developer-returned TTS audio, in Hz. |
+
+Audio is always mono PCM/Opus at the protocol level. Channel count and sample depth are not user-configurable; PCM sample depth is 2 bytes.
+
+`ttsProvider=platform` is valid only when the Avatar has platform TTS information configured, such as `ttsProviderId`, `voiceId`, or a fallback voice. If TTS is not explicitly configured, the platform treats TTS as developer-provided and requires the developer to return `response.audio.*`.
 
 ---
 
@@ -186,6 +208,8 @@ The Live Avatar Service sends a text input message.
 ---
 
 ### 4️⃣ Developer Service Streaming Output
+
+Text output is available only when `ttsProvider=platform` and a platform TTS voice is configured. When `ttsProvider=developer`, the developer must return audio output instead.
 
 #### start (Optional)
 
@@ -305,9 +329,9 @@ A single response may consist of replies from multiple agents.
 }
 ```
 
-A signal initiated by the Developer Service for **proactive, business-logic-driven** interrupts — for example, stopping the avatar for a custom reason independent of user input.
+A signal for **explicit programmatic interruption**, initiated by the Developer Service in scenarios not triggered by any user input event (e.g., backend timeout, business-logic override).
 
-> **Note:** `control.interrupt` is **not** required for input-driven flows. When the platform processes `input.text` or receives `input.voice.start`, it automatically clears the RTC buffer internally. Use `control.interrupt` only when your application logic needs to stop the avatar outside of a user input event.
+The Live Avatar Service automatically clears the RTC playback buffer whenever it receives a new user input event (`input.text` or `input.voice.start`). In those flows the developer only needs to cancel the internal LLM/TTS task — no explicit `control.interrupt` is required.
 
 Providing `requestId` helps ensure that a specific, designated conversation is interrupted precisely, preventing erroneous interruptions caused by network instability. This field is optional.
 
@@ -318,15 +342,15 @@ The following sequence diagram illustrates the interrupt execution flow.
 >
 > | ASR Mode | Who may send `control.interrupt` | Platform auto-interrupt |
 > |---|---|---|
-> | Platform ASR (Scenario 2A) | Developer **and** Platform | Allowed — platform may auto-interrupt based on its own VAD policy |
-> | Developer ASR / Omni (Scenario 2B) | Developer **only** | **Forbidden** — platform MUST NOT send `control.interrupt` |
+> | `asrProvider=platform` (Scenario 2A) | Developer **and** Platform | Allowed — platform may auto-interrupt based on ASR built-in voice activity detection |
+> | `asrProvider=developer` / Omni (Scenario 2B) | Developer **only** | **Forbidden** — platform MUST NOT send `control.interrupt` |
 >
-> **Rationale:** In Scenario 2B the developer owns VAD, so only the developer knows when speech boundaries occur. A platform-initiated interrupt in this mode would break the developer's ASR pipeline.
+> **Rationale:** In Scenario 2B the developer owns speech boundary detection, so only the developer knows when speech boundaries occur. A platform-initiated interrupt in this mode would break the developer's ASR pipeline.
 >
-> **Note:** Voice interrupt handling differs by ASR mode:
+> **Note:** In both ASR modes, the platform automatically clears the RTC playback buffer when it processes a voice-start boundary; no `control.interrupt` is needed in either case:
 >
-> - **Platform ASR** — The platform detects VAD and sends `input.voice.start` to the developer. The platform may also auto-interrupt based on its own VAD policy.
-> - **Developer ASR / Omni** — The developer receives raw audio Binary Frames (Scenario 2B), runs VAD internally, and sends `input.voice.start` to the platform. The platform automatically clears the RTC buffer upon receiving `input.voice.start`. This is the path illustrated in the diagram below.
+> - **`asrProvider=platform`** — The platform receives speech boundaries from ASR, sends `input.voice.start` to the developer, and clears the buffer itself at that point.
+> - **`asrProvider=developer` / Omni** — The developer detects speech boundaries internally and sends `input.voice.start` to the platform; the platform clears the buffer on receipt.
 
 ```mermaid
 sequenceDiagram
@@ -337,10 +361,10 @@ sequenceDiagram
     participant Avatar as Live Avatar Service (Platform/RTC)
 
     Note over User, Avatar: Case 1: Avatar is speaking, user sends a text message
-    User->>AppServer: 1. Send text message (input.text)
+    User->>AppServer: 1. input.text (platform auto-clears RTC buffer before forwarding)
 
     rect rgb(240, 248, 255)
-        Note right of AppServer: [Text Hard Interrupt]
+        Note right of AppServer: [Text Interrupt — developer side only]
         AppServer->>Task: 2. cancelCurrentResponse() (terminate old task)
     end
 
@@ -348,20 +372,19 @@ sequenceDiagram
     Task-->>Avatar: 4. Push new reply text/audio
     Avatar-->>User: 5. Render new reply
 
-    Note over User, Avatar: Case 2: Avatar is speaking, user starts speaking (Developer ASR / Omni path)
+    Note over User, Avatar: Case 2: Avatar is speaking, user starts speaking (asrProvider=developer / Omni path)
     Avatar->>AppServer: 6. Binary Frames (continuous raw audio forwarded by platform)
 
-    AppServer->>AppServer: 7. asrService.detectVoiceActivity (VAD triggered internally)
+    AppServer->>AppServer: 7. asrService.detectVoiceActivity (speech boundary detected internally)
 
     rect rgb(255, 240, 245)
-        Note right of AppServer: [Voice Real-time Interrupt]
+        Note right of AppServer: [Voice Interrupt — developer side only]
         AppServer->>Task: 8. cancelCurrentResponse() (cut off at the source)
-        AppServer->>Avatar: 9. input.voice.start (platform auto-clears RTC buffer)
     end
 
-    AppServer->>AppServer: 10. Continue ASR recognition (accumulate audio + send input.asr.partial)
-    AppServer->>Avatar: 11. input.voice.finish (VAD detects speech end)
-    AppServer->>Avatar: 12. input.asr.final (recognition complete)
+    AppServer->>Avatar: 9. input.voice.start (speech boundary notification — platform auto-clears RTC buffer on receipt)
+    AppServer->>AppServer: 10. Continue ASR recognition (collecting input.asr.partial...)
+    AppServer->>Avatar: 11. input.voice.finish (user stopped speaking)
     Note over User, Avatar: Repeat steps 3-5 for new reply flow
 ```
 
@@ -385,26 +408,74 @@ This message is typically sent proactively by the system just before a timeout i
 ## Scenario 2: Real-time Voice Input
 
 > **Design Principle — ASR Ownership:**
-> Whoever provides ASR is responsible for producing ASR recognition results and VAD judgments.
+> Whoever provides ASR is responsible for producing ASR recognition results and speech boundary judgments — and for sending the corresponding events.
 >
-> - **Platform ASR** → Platform runs ASR + VAD internally. The recognized text is sent to the agent WebSocket as `input.text` (same format as typed text in Scenario 1). `input.asr.*` / `input.voice.*` events are internal to the platform and are **not** forwarded to the agent WebSocket.
-> - **Developer ASR / Omni** → Platform forwards raw audio Binary Frames to the Developer Service; the developer runs ASR + VAD and sends `input.asr.*` / `input.voice.*` **to the platform** to keep its state machine in sync and enable conversation logging. `input.asr.*` / `input.voice.*` events are **only** used in this path.
+> - **`asrProvider=platform`** → Platform receives speech boundaries from ASR and sends `input.asr.*` / `input.voice.*` **to** the Developer Service.
+> - **`asrProvider=developer` / Omni** → Platform forwards raw audio Binary Frames to the Developer Service; the developer runs ASR / Omni and sends `input.asr.*` / `input.voice.*` **back to** the platform (same events, reversed direction). This keeps the platform state machine in sync and enables conversation logging.
 
 ---
 
-### Scenario 2A: Platform ASR
+### Scenario 2A: `asrProvider=platform`
 
-In this mode, the platform performs ASR and VAD internally. The recognized text is sent to the agent WebSocket as `input.text` — the same event used for typed text in Scenario 1. The developer processes it identically to a text message.
+The following events are sent by the **Live Avatar Service (Platform) → Developer Service**.
 
-`input.asr.*` and `input.voice.*` events are internal to the platform and are **not** forwarded to the agent WebSocket. They exist only for the Developer ASR path (Scenario 2B), where the developer sends them to the platform.
+#### ASR Recognition — Streaming Partial Result
 
-👉 The workflow is identical to Scenario 1 — the agent receives `input.text` and responds with standard response events.
+```json
+{
+  "event": "input.asr.partial",
+  "requestId": "req_2",
+  "seq": 3,
+  "data": {
+    "text": "What is your",
+    "final": false
+  }
+}
+```
 
 ---
 
-### Scenario 2B: Developer ASR / Omni
+#### ASR Recognition — Final Result
 
-When the avatar is configured for developer-provided ASR (including Omni multimodal models), the **Live Avatar Service (Platform) → Developer Service** continuously forwards the user's audio as a raw Binary Frame stream throughout the session. There are no start/finish signaling events — the platform performs no VAD and imposes no segmentation.
+```json
+{
+  "event": "input.asr.final",
+  "requestId": "req_2",
+  "data": {
+    "text": "What is your name?"
+  }
+}
+```
+
+---
+
+#### Speech Boundary — Speech Start
+
+```json
+{
+  "event": "input.voice.start",
+  "requestId": "req_1"
+}
+```
+
+#### Speech Boundary — Speech End
+
+```json
+{
+  "event": "input.voice.finish",
+  "requestId": "req_1"
+}
+```
+
+`input.asr.partial` is optional; sending only `input.asr.final` is acceptable.
+
+The subsequent response workflow is identical to Scenario 1: return text only when `ttsProvider=platform`; otherwise return audio.
+
+---
+
+### Scenario 2B: `asrProvider=developer` / Omni
+
+When the avatar is configured for developer-provided ASR (including Omni multimodal models), the **Live Avatar Service (Platform) → Developer Service** continuously forwards the user's audio as a raw Binary Frame stream throughout the session. There are no start/finish signaling events — the platform performs no independent VAD and imposes no segmentation.
 
 #### Continuous Raw Audio Stream
 
@@ -412,20 +483,20 @@ Binary Frames are forwarded using the same binary format defined in the [Audio P
 
 > The raw audio Binary Frame format is identical to the `response.audio.*` Binary Frame format used for developer-managed TTS output — only the transmission direction is reversed.
 
-The developer runs VAD and ASR internally, then sends the **`input.voice.*` and `input.asr.*` events to the platform**:
+The developer detects speech boundaries and runs ASR internally, then sends the **same `input.voice.*` and `input.asr.*` events back to the platform** (direction reversed compared to Scenario 2A):
 
-| Event | Direction | Purpose |
-|---|---|---|
-| `input.voice.start` | **Developer → Platform** | Notify platform that user started speaking; triggers LISTENING state |
-| `input.asr.partial` | **Developer → Platform** | Stream partial recognition results for real-time display |
-| `input.voice.finish` | **Developer → Platform** | Notify platform that user stopped speaking |
-| `input.asr.final` | **Developer → Platform** | Send final recognition result; platform advances state machine |
+| Event                | Direction                | Purpose                                                              |
+| -------------------- | ------------------------ | -------------------------------------------------------------------- |
+| `input.voice.start`  | **Developer → Platform** | Notify platform that user started speaking; triggers LISTENING state |
+| `input.asr.partial`  | **Developer → Platform** | Stream partial recognition results for real-time display             |
+| `input.voice.finish` | **Developer → Platform** | Notify platform that user stopped speaking                           |
+| `input.asr.final`    | **Developer → Platform** | Send final recognition result; platform advances state machine       |
 
-After sending `input.asr.final`, the developer processes the recognized text and responds using the standard response events (Scenario 1, Section 4).
+After sending `input.asr.final`, the developer processes the recognized text and responds using the standard response workflow (Scenario 1, Section 4).
 
 ---
 
-### Speech Output Start / End Detection (The party providing TTS is responsible for sending these messages)
+### Speech Output Start / End Detection (`ttsProvider=developer`)
 
 #### Speech Output Started
 
@@ -447,13 +518,9 @@ After sending `input.asr.final`, the developer processes the recognized text and
 }
 ```
 
-**Scenario: TTS provided by the Developer Service**
+When `ttsProvider=developer`, the developer sends `response.audio.start`, pushes the corresponding audio Binary Frames, and sends `response.audio.finish` after transmission is complete.
 
-After sending the "Speech Output Started" message, the developer service pushes the corresponding audio data. Once the audio data transmission is complete, the "Speech Output Finished" message is sent.
-
-**Scenario: TTS provided by the Live Avatar Service**
-
-After sending the "Speech Output Started" message, the Live Avatar Service pushes the corresponding audio data. Once the audio data transmission is complete, the "Speech Output Finished" message is sent.
+When `ttsProvider=platform`, the developer does not send `response.audio.*`; the platform TTS lifecycle is internal to the Live Avatar Service.
 
 ---
 
@@ -486,7 +553,7 @@ The system detected that the Live Avatar has been idle for a significant period.
 
 ---
 
-Upon receiving this message, the Live Avatar Service will use the configured TTS engine to drive the Live Avatar to speak the specified content.
+Upon receiving this message, the Live Avatar Service will use the configured platform TTS engine to drive the Live Avatar to speak the specified content. This message is valid only when `ttsProvider=platform`.
 
 The prompt text does not count toward the accumulated user idle time.
 
@@ -506,7 +573,7 @@ The prompt text does not count toward the accumulated user idle time.
 }
 ```
 
-After sending the Idle Reminder Start message, the Developer Service pushes the corresponding reminder audio. The Idle Reminder End message is sent only after the prompt audio transmission is complete.
+When `ttsProvider=developer`, the Developer Service may send the Idle Reminder Start message, push the corresponding reminder audio, and send the Idle Reminder End message only after the prompt audio transmission is complete.
 
 Prompt audio does not count toward the accumulated user idle time.
 

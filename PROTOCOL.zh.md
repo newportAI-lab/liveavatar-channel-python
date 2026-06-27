@@ -4,6 +4,8 @@
 
 本协议专注于 Live Avatar 平台（coordinator）与开发者后端（agent）之间的 WebSocket 点对点通信，包含文本、音频、图片内容。
 
+> 本文档适用于 `mode: "websocketAgent"`。ASR/TTS 由平台提供还是开发者提供，取决于 Avatar 配置；如果 WebSocket Agent 是 Avatar 默认模式，`/session/start` 可以不传 `mode`。
+
 ## 场景支持考量
 
 1. 消息类型语义化，方便理解。
@@ -69,7 +71,7 @@
 
 ## WebSocket 连接模型
 
-数字人平台提供 WebSocket 服务端，为每个会话动态分配 WS 端点（`agentWsUrl`）。开发者后端作为 WebSocket 客户端连接到平台，无需暴露公网服务。
+平台提供 WebSocket 服务，为每次会话动态分配 WS 端点（`agentWsUrl`）。开发者后端作为 WS 客户端主动连接平台，无需公网服务器。
 
 ```mermaid
 sequenceDiagram
@@ -80,25 +82,26 @@ sequenceDiagram
     participant RTC as RTC房间 (SFU)
     participant Avatar as 数字人引擎
 
-    AppServer->>Platform: /session/start (API Key)
+    AppServer->>Platform: /session/start { avatarId, mode: "websocketAgent" } (API Key)
     Platform->>Avatar: 启动数字人
-    Avatar->>RTC: 加入房间
+    Avatar->>RTC: 加入房间 (identity: renderer_{sessionId})
+    Platform->>RTC: 加入房间 (identity: coordinator_{sessionId})
     Avatar->>Platform: 启动完成
-    Platform->>AppServer: { sessionId, clientToken, agentWsUrl, sfuUrl }
+    Platform->>AppServer: { sessionId, userToken, agentWsUrl, sfuUrl }
     AppServer-->>Platform: 通过 agentWsUrl 建立 WebSocket 连接
-    Note right of AppServer: AppServer 直接用 API Key 调 /session/start<br/>agentWsUrl 直接返回给 AppServer（不得转发给前端）<br/>AppServer 作为 WebSocket 客户端——无需公网 IP
-    AppServer->>User: { clientToken, sfuUrl }
+    Note right of AppServer: AppServer 直接用 API Key 调 /session/start<br/>agentWsUrl 直接返回给 AppServer（不得转发给前端）<br/>AppServer 为 WS 客户端——无需公网 IP
+    AppServer->>User: { userToken, sfuUrl }
 
-    User->>RTC: 加入房间 (clientToken)
+    User->>RTC: 加入房间 (userToken)
     User-->>RTC: 发布文本/音频流
 
     Platform-->>RTC: 订阅用户文本/音频流
     Platform->>AppServer: 通过 WebSocket 转发给业务后端
 
-    alt 文本模式
+    alt 已配置平台 TTS
         AppServer-->>Avatar: 返回回复文本
         Avatar->>Avatar: 内部 TTS 转换
-    else 音频模式
+    else 开发者自提供 TTS
         AppServer-->>Avatar: 返回回复音频流
     end
 
@@ -108,9 +111,26 @@ sequenceDiagram
 
 > **sessionToken**
 >
-> `sessionToken`（通过 `/auth/session/token` 获取）仅用于全托管模式，此模式下**前端**直接调用 `/session/start`，后端仅充当令牌中转——既避免 API Key 暴露在客户端，又无需后端深度介入。
+> `sessionToken`（通过 `/auth/session/token` 获取）仅用于全托管模式，此时**前端**直接调用 `/session/start`，后端仅充当令牌中转——既避免 API Key 暴露在客户端，又无需后端深度介入。
 >
-> 在 WebSocket Agent 和 RTC 模式下，**开发者后端**直接用 API Key 调用 `/session/start`，获得 `clientToken + sfuUrl` 后分发给前端。**不需要** `sessionToken`。
+> WebSocket Agent 和 RTC Agent 模式下，**开发者后端**直接用 API Key 调用 `/session/start`，获得 `userToken + sfuUrl` 后分发给前端。**不需要** `sessionToken`。
+
+---
+
+## WebSocket Agent 能力配置
+
+以下选项配置在 Avatar 上。
+
+| 字段 | 默认值 | 含义 |
+| --- | --- | --- |
+| `asrProvider` | `developer` | `developer` 表示平台将用户音频按 Binary Frame 转发给开发者；`platform` 表示平台使用平台 ASR，并把 `input.asr.*` 以及 ASR 产生的 `input.voice.*` 事件发给开发者。 |
+| `ttsProvider` | `developer` | `developer` 表示开发者返回 `response.audio.*` 与音频 Binary Frame；`platform` 表示开发者可以通过 `response.chunk` / `response.done` 返回文本，由平台 TTS 驱动数字人。 |
+| `asrSampleRate` | `16000` | 转发给开发者 ASR 的用户音频采样率，单位 Hz。 |
+| `ttsSampleRate` | `24000` | 开发者返回 TTS 音频时平台期望的采样率，单位 Hz。 |
+
+协议层音频始终按 mono PCM/Opus 处理。声道数和采样深度不需要用户配置；PCM 采样深度固定为 2 字节。
+
+只有 Avatar 已配置平台 TTS 信息时，`ttsProvider=platform` 才有效，例如 `ttsProviderId`、`voiceId` 或兜底音色。若用户没有显式配置 TTS，平台认为 TTS 由开发者提供，开发者必须返回 `response.audio.*`。
 
 ---
 
@@ -119,8 +139,6 @@ sequenceDiagram
 ### 1️⃣ 建立连接
 
 #### Client（数字人服务）→ Server（开发者服务）
-
-> WebSocket 连接建立后，**永远是数字人服务先发** `session.init`。
 
 ```json
 {
@@ -187,9 +205,11 @@ sequenceDiagram
 
 ### 4️⃣ 开发者服务流式输出
 
+只有 `ttsProvider=platform` 且已配置平台 TTS 音色时，才支持文本输出。`ttsProvider=developer` 时，开发者必须返回音频输出。
+
 #### 输出开始（可选）
 
-可选事件。如果你需要对数字人服务提供的 TTS 进行语速、音量、情绪等的控制，可以在发送 chunk 事件前发送该消息。
+可选事件。如果你需要对数字人服务提供的 TTS 进行语速、音量、情绪等控制，可以在发送 chunk 事件前发送该消息。若 TTS 由开发者提供，该消息也不需要发送。
 
 ```json
 {
@@ -305,9 +325,9 @@ seq = session 内递增。所有 state 值（后续可能扩展）：
 }
 ```
 
-开发者服务发起的**主动、业务逻辑驱动**的打断信号 — 例如，基于自身业务逻辑、独立于用户输入事件，主动停止数字人播报。
+开发者服务发起的**程序化主动打断**信号，适用于非用户输入事件触发的场景（如后端超时、业务逻辑强制打断等）。
 
-> **说明：** 输入事件驱动的打断**无需**发送 `control.interrupt`。平台在处理 `input.text` 或收到 `input.voice.start` 时，会自动清空 RTC 缓冲区。只有当应用逻辑需要在用户输入事件之外主动停止数字人时，才需发送 `control.interrupt`。
+数字人服务在收到任何新的用户输入事件（`input.text` 或 `input.voice.start`）时，会**自动清空 RTC 播放缓冲区**。在这些正常输入流程中，开发者只需在内部取消当前 LLM/TTS 任务，无需额外发送 `control.interrupt`。
 
 打断时传入 requestId 可以帮助精准打断指定的对话，避免因为网络抖动导致误打断，也可以不填。
 
@@ -318,15 +338,15 @@ seq = session 内递增。所有 state 值（后续可能扩展）：
 >
 > | ASR 模式 | 谁可以发送 `control.interrupt` | 平台自动打断 |
 > |---|---|---|
-> | 平台 ASR（场景 2A） | 开发者 **和** 平台均可 | 允许 — 平台可依据自身 VAD 策略自动打断 |
-> | 开发者 ASR / Omni（场景 2B） | **仅** 开发者 | **禁止** — 平台不得发送 `control.interrupt` |
+> | `asrProvider=platform`（场景 2A） | 开发者 **和** 平台均可 | 允许 — 平台可依据 ASR 内置语音活动边界自动打断 |
+> | `asrProvider=developer` / Omni（场景 2B） | **仅** 开发者 | **禁止** — 平台不得发送 `control.interrupt` |
 >
-> **原因：** 场景 2B 中，VAD 由开发者掌控，只有开发者知道语音边界的位置。若平台在此模式下主动发出打断，会破坏开发者的 ASR 处理流程。
+> **原因：** 场景 2B 中，语音边界由开发者掌控，只有开发者知道语音边界的位置。若平台在此模式下主动发出打断，会破坏开发者的 ASR 处理流程。
 >
-> **说明：** 语音打断的触发方因 ASR 模式不同而不同：
+> **说明：** 两种 ASR 模式下，平台在处理语音起始边界时均会自动清空 RTC 播放缓冲区，无需开发者发送 `control.interrupt`：
 >
-> - **平台 ASR** — 平台检测 VAD 并向开发者发送 `input.voice.start`；平台也可能依据自身 VAD 策略自动打断。
-> - **开发者 ASR / Omni** — 开发者接收原始音频 Binary Frame（场景 2B），在内部执行 VAD，并向平台发送 `input.voice.start`。平台收到 `input.voice.start` 后会自动清空 RTC 缓冲区。下图展示的即为此路径。
+> - **`asrProvider=platform`** — 平台从 ASR 获得语音边界后，向开发者发送 `input.voice.start`，并在此时自行清空缓冲区。
+> - **`asrProvider=developer` / Omni** — 开发者在内部检测语音边界，向平台发送 `input.voice.start`；平台收到后清空缓冲区。
 
 ```mermaid
 sequenceDiagram
@@ -337,31 +357,30 @@ sequenceDiagram
     participant Avatar as 数字人服务 (Platform/RTC)
 
     Note over User, Avatar: 场景 1：数字人正在说话，用户发送了文本消息
-    User->>AppServer: 1. 发送文本消息 (input.text)
-    
+    User->>AppServer: 1. input.text（平台转发前自动清空 RTC 缓冲区）
+
     rect rgb(240, 248, 255)
-        Note right of AppServer: 【文字强打断】
+        Note right of AppServer: 【文字打断 — 仅开发者侧】
         AppServer->>Task: 2. cancelCurrentResponse() (终止旧任务)
     end
-    
+
     AppServer->>Task: 3. processTextInput (开启新任务)
     Task-->>Avatar: 4. 推送新回复文本/音频
     Avatar-->>User: 5. 渲染新回复画面
 
-    Note over User, Avatar: 场景 2：数字人正在说话，用户开口说话（开发者 ASR / Omni 路径）
+    Note over User, Avatar: 场景 2：数字人正在说话，用户开口说话（asrProvider=developer / Omni 路径）
     Avatar->>AppServer: 6. Binary Frame（平台持续转发原始音频）
-    
-    AppServer->>AppServer: 7. asrService.detectVoiceActivity（内部 VAD 触发）
-    
+
+    AppServer->>AppServer: 7. asrService.detectVoiceActivity（内部检测到语音边界）
+
     rect rgb(255, 240, 245)
-        Note right of AppServer: 【语音实时打断】
+        Note right of AppServer: 【语音打断 — 仅开发者侧】
         AppServer->>Task: 8. cancelCurrentResponse() (确保源头切断)
-        AppServer->>Avatar: 9. input.voice.start（平台自动清空 RTC 缓冲区）
     end
 
-    AppServer->>AppServer: 10. 继续 ASR 识别（持续收音 + 发送 input.asr.partial）
-    AppServer->>Avatar: 11. input.voice.finish（VAD 检测到说话结束）
-    AppServer->>Avatar: 12. input.asr.final（识别完成）
+    AppServer->>Avatar: 9. input.voice.start（语音边界通知 — 平台收到后自动清空 RTC 缓冲区）
+    AppServer->>AppServer: 10. 继续 ASR 识别（持续收集 input.asr.partial...）
+    AppServer->>Avatar: 11. input.voice.finish（用户停止说话）
     Note over User, Avatar: 重复步骤 3-5 的新回复流程
 ```
 
@@ -385,26 +404,74 @@ sequenceDiagram
 ## 场景二：实时语音输入
 
 > **设计原则 — ASR 归属权：**
-> ASR 由谁提供，ASR 识别结果和 VAD 判定就由谁来负责。
+> ASR 由谁提供，ASR 识别结果和语音边界判定就由谁来负责——对应事件也由谁来发送。
 >
-> - **平台 ASR** → 平台内部执行 ASR + VAD，识别结果以 `input.text` 的形式发送到 agent WebSocket（与场景一的文字输入格式相同）。`input.asr.*` / `input.voice.*` 事件属于平台内部事件，**不会**转发到 agent WebSocket。
-> - **开发者 ASR / Omni** → 平台持续转发原始音频 Binary Frame；开发者执行 ASR + VAD，再将 `input.asr.*` / `input.voice.*` **发送给平台**，以便平台状态机正常流转、对话内容正常记录。`input.asr.*` / `input.voice.*` 事件**仅**用于此路径。
+> - **`asrProvider=platform`** → 平台从 ASR 获得识别结果和语音边界，将 `input.asr.*` / `input.voice.*` **下发给**开发者服务。
+> - **`asrProvider=developer` / Omni** → 平台持续转发原始音频 Binary Frame；开发者执行 ASR / Omni 并检测语音边界，再将同样的 `input.asr.*` / `input.voice.*` **回传给**平台（事件相同，方向相反）。这样平台状态机才能正常流转，对话内容才能正常记录和展示。
 
 ---
 
-### 场景 2A：平台 ASR
+### 场景 2A：`asrProvider=platform`
 
-此模式下，平台内部执行 ASR 和 VAD，识别结果以 `input.text` 的形式发送到 agent WebSocket — 与场景一中文字输入使用的事件完全相同。开发者处理方式与文本消息完全一致。
+以下事件由**数字人服务（平台）→ 开发者服务**发送。
 
-`input.asr.*` 和 `input.voice.*` 事件属于平台内部事件，**不会**转发到 agent WebSocket。这些事件仅用于开发者 ASR 路径（场景 2B），由开发者发送给平台。
+#### ASR 识别 — 流式中间结果
 
-👉 此场景流程与场景一完全相同 — agent 收到 `input.text` 后以标准 response 事件回复。
+```json
+{
+  "event": "input.asr.partial",
+  "requestId": "req_2",
+  "seq": 3,
+  "data": {
+    "text": "你叫",
+    "final": false
+  }
+}
+```
 
 ---
 
-### 场景 2B：开发者 ASR / Omni
+#### ASR 识别 — 最终结果
 
-当数字人配置为开发者自提供 ASR（包括 Omni 多模态模型）时，**数字人服务（平台）→ 开发者服务**在会话期间持续将用户音频以原始 Binary Frame 流的形式转发。不存在任何开始/结束信号事件 — 平台不执行 VAD，也不做任何分段。
+```json
+{
+  "event": "input.asr.final",
+  "requestId": "req_2",
+  "data": {
+    "text": "你叫什么名字"
+  }
+}
+```
+
+---
+
+#### 语音边界 — 说话开始
+
+```json
+{
+  "event": "input.voice.start",
+  "requestId": "req_1"
+}
+```
+
+#### 语音边界 — 说话结束
+
+```json
+{
+  "event": "input.voice.finish",
+  "requestId": "req_1"
+}
+```
+
+`input.asr.partial` 为可选事件，仅发送 `input.asr.final` 也是允许的。
+
+后续响应流程同场景一：`ttsProvider=platform` 时返回文本，否则返回音频。
+
+---
+
+### 场景 2B：`asrProvider=developer` / Omni
+
+当数字人配置为开发者自提供 ASR（包括 Omni 多模态模型）时，**数字人服务（平台）→ 开发者服务**在会话期间持续将用户音频以原始 Binary Frame 流的形式转发。不存在任何开始/结束信号事件 — 平台不执行独立 VAD，也不做任何分段。
 
 #### 持续原始音频流
 
@@ -412,7 +479,7 @@ Binary Frame 持续转发，格式与[音频协议](#音频协议设计仅-webso
 
 > 原始音频 Binary Frame 格式与开发者自定义 TTS 输出所用的 `response.audio.*` Binary Frame 格式完全相同，仅传输方向相反。
 
-开发者在内部执行 VAD 和 ASR，然后将 **`input.voice.*` 和 `input.asr.*` 事件发送给平台**：
+开发者在内部检测语音边界并执行 ASR，然后将**同样的 `input.voice.*` 和 `input.asr.*` 事件回传给平台**（与场景 2A 方向相反）：
 
 | 事件 | 方向 | 用途 |
 |---|---|---|
@@ -421,11 +488,11 @@ Binary Frame 持续转发，格式与[音频协议](#音频协议设计仅-webso
 | `input.voice.finish` | **开发者 → 平台** | 通知平台用户停止说话 |
 | `input.asr.final` | **开发者 → 平台** | 发送最终识别结果，平台推进状态机 |
 
-发送 `input.asr.final` 后，开发者处理识别文本并使用标准 response 事件（场景一第 4 节）进行回复。
+发送 `input.asr.final` 后，开发者处理识别文本并使用标准响应流程（场景一第 4 节）进行回复。
 
 ---
 
-### 语音输出开始/结束检测（TTS 由谁来提供，消息谁来发送）
+### 语音输出开始/结束检测（`ttsProvider=developer`）
 
 #### 语音输出开始
 
@@ -447,13 +514,9 @@ Binary Frame 持续转发，格式与[音频协议](#音频协议设计仅-webso
 }
 ```
 
-**TTS 由开发者提供的情况**：
+`ttsProvider=developer` 时，开发者发送语音输出开始消息，随后推送对应的音频 Binary Frame，音频推送完毕后再发送语音输出结束消息。
 
-发送语音输出开始消息后开发者服务推送对应的语音数据，语音数据推送完毕再发送语音输出结束消息。
-
-**TTS 由数字人服务提供的情况**：
-
-发送语音输出开始消息后数字人服务推送对应的语音数据，语音数据推送完毕再发送语音输出结束消息。
+`ttsProvider=platform` 时，开发者不发送 `response.audio.*`；平台 TTS 生命周期由数字人服务内部处理。
 
 ---
 
@@ -486,7 +549,7 @@ Binary Frame 持续转发，格式与[音频协议](#音频协议设计仅-webso
 
 ---
 
-数字人服务收到这个消息后会使用配置好的 TTS 驱动数字人说指定的内容。
+数字人服务收到这个消息后会使用配置好的平台 TTS 驱动数字人说指定的内容。该消息仅在 `ttsProvider=platform` 时有效。
 
 prompt 文本不参与用户闲置累计计时。
 
@@ -506,7 +569,7 @@ prompt 文本不参与用户闲置累计计时。
 }
 ```
 
-发送闲置提醒开始消息后开发者服务推送对应的提醒语音，prompt 音频推送完毕再发送闲置提醒结束消息。
+`ttsProvider=developer` 时，开发者服务可以发送闲置提醒开始消息，随后推送对应的提醒语音，并在 prompt 音频推送完毕后发送闲置提醒结束消息。
 
 prompt 音频不参与用户闲置累计计时。
 
@@ -558,18 +621,18 @@ prompt 音频不参与用户闲置累计计时。
 
 按照顺序，每一个字段占的位数。
 
-| 字段 | 位数 | 位偏移（高→低）| 范围/取值 | 说明 |
-| --- | --- | --- | --- | --- |
-| **T (Type)** | 2 | 70–71 | `01` | 固定为音频帧 |
-| **C (Channel)** | 1 | 69 | 0 / 1 | 0=Mono, 1=Stereo |
-| **K (Key)** | 1 | 68 | 0 / 1 | 关键帧（首帧 / Opus 重同步）|
-| **S (Seq)** | 12 | 56–67 | 0–4095 | 序号（循环）|
-| **TS (Timestamp)** | 20 | 36–55 | 0–1,048,575 | 时间戳（ms，循环）|
-| **SR (SampleRate)** | 2 | 34–35 | 00/01/10 | 00=16kHz, 01=24kHz, 10=48kHz |
-| **F (Samples)** | 12 | 22–33 | 0–4095 | 每帧采样数（如 24k/40ms=960）|
-| **Codec** | 2 | 20–21 | 00/01 | 00=PCM, 01=Opus |
-| **R (Reserved)** | 4 | 16–19 | 0000 | 保留位 |
-| **L (Length)** | 16 | 0–15 | 0–65535 | Payload 字节长度 |
+| 字段                  | 位数  | 位偏移（高→低） | 范围/取值       | 说明                           |
+| ------------------- | --- | -------- | ----------- | ---------------------------- |
+| **T (Type)**        | 2   | 70–71    | `01`        | 固定为音频帧                       |
+| **C (Channel)**     | 1   | 69       | 0 / 1       | 0=Mono, 1=Stereo             |
+| **K (Key)**         | 1   | 68       | 0 / 1       | 关键帧（首帧 / Opus 重同步）           |
+| **S (Seq)**         | 12  | 56–67    | 0–4095      | 序号（循环）                       |
+| **TS (Timestamp)**  | 20  | 36–55    | 0–1,048,575 | 时间戳（ms，循环）                   |
+| **SR (SampleRate)** | 2   | 34–35    | 00/01/10    | 00=16kHz, 01=24kHz, 10=48kHz |
+| **F (Samples)**     | 12  | 22–33    | 0–4095      | 每帧采样数（如 24k/40ms=960）        |
+| **Codec**           | 2   | 20–21    | 00/01       | 00=PCM, 01=Opus              |
+| **R (Reserved)**    | 4   | 16–19    | 0000        | 保留位                          |
+| **L (Length)**      | 16  | 0–15     | 0–65535     | Payload 字节长度                 |
 
 Seq 和 TS 都是递增的，但它们位数有限，因此需要支持循环。
 
@@ -612,13 +675,13 @@ TS 和 Seq 均为循环计数器，接收端必须使用模运算进行比较，
 
 按照顺序，每一个字段占的位数。
 
-| 字段 | 位数 | 位偏移（高→低）| 范围/取值 | 说明 |
-| --- | --- | --- | --- | --- |
-| **T (Type)** | 2 | 94–95 | `10` | 固定为图片帧标识 |
-| **V (Version)** | 2 | 92–93 | `00` | 协议版本（预留扩展）|
-| **F (Format)** | 4 | 88–91 | 0–4 | 0=JPG, 1=PNG, 2=WebP, 3=GIF, 4=AVIF |
-| **Q (Quality)** | 8 | 80–87 | 0–255 | 图片质量（编码质量/压缩等级）|
-| **ID (ImageId)** | 16 | 64–79 | 0–65535 | 图片唯一标识（用于分片/重组）|
-| **W (Width)** | 16 | 48–63 | 0–65535 | 图片宽度（像素）|
-| **H (Height)** | 16 | 32–47 | 0–65535 | 图片高度（像素）|
-| **L (Length)** | 32 | 0–31 | 0–4,294,967,295 | Payload 字节长度 |
+| 字段               | 位数  | 位偏移（高→低） | 范围/取值           | 说明                                  |
+| ---------------- | --- | -------- | --------------- | ----------------------------------- |
+| **T (Type)**     | 2   | 94–95    | `10`            | 固定为图片帧标识                            |
+| **V (Version)**  | 2   | 92–93    | `00`            | 协议版本（预留扩展）                          |
+| **F (Format)**   | 4   | 88–91    | 0–4             | 0=JPG, 1=PNG, 2=WebP, 3=GIF, 4=AVIF |
+| **Q (Quality)**  | 8   | 80–87    | 0–255           | 图片质量（编码质量/压缩等级）                     |
+| **ID (ImageId)** | 16  | 64–79    | 0–65535         | 图片唯一标识（用于分片/重组）                     |
+| **W (Width)**    | 16  | 48–63    | 0–65535         | 图片宽度（像素）                            |
+| **H (Height)**   | 16  | 32–47    | 0–65535         | 图片高度（像素）                            |
+| **L (Length)**   | 32  | 0–31     | 0–4,294,967,295 | Payload 字节长度                        |
