@@ -249,7 +249,10 @@ class AvatarAgent:
 
     async def _rest_start(self) -> SessionStartResult:
         assert self._http_client is not None
-        body: dict = {"avatarId": self._config.avatar_id}
+        body: dict = {
+            "avatarId": self._config.avatar_id,
+            "mode": "websocketAgent",
+        }
         if self._config.voice_id is not None:
             body["voiceId"] = self._config.voice_id
         if self._config.voice_config:

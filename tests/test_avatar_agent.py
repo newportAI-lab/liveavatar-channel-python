@@ -293,6 +293,34 @@ async def test_rest_start_success(agent_with_config: AvatarAgent, httpx_mock):
 
 
 @pytest.mark.asyncio
+async def test_rest_start_sends_websocket_agent_mode(agent_with_config: AvatarAgent, httpx_mock):
+    body_capture = {}
+
+    def capture_body(request):
+        body_capture.update(json.loads(request.content))
+        return httpx.Response(200, json={
+            "code": 0, "message": "success",
+            "data": {"sessionId": "s", "sfuUrl": "u", "userToken": "t"},
+        })
+
+    httpx_mock.add_callback(
+        capture_body,
+        url="https://test.example.com/v1/session/start",
+        method="POST",
+    )
+
+    agent_with_config._http_client = httpx.AsyncClient(
+        base_url="https://test.example.com",
+        headers={"Authorization": "Bearer sk-test"},
+    )
+    try:
+        await agent_with_config._rest_start()
+        assert body_capture["mode"] == "websocketAgent"
+    finally:
+        await agent_with_config._http_client.aclose()
+
+
+@pytest.mark.asyncio
 async def test_rest_start_error(agent_with_config: AvatarAgent, httpx_mock):
     httpx_mock.add_response(
         url="https://test.example.com/v1/session/start",

@@ -4,7 +4,7 @@
 
 用于 Live Avatar WebSocket 协议的 Python SDK。将你的 AI 后端连接到实时数字人服务，支持文本、音频和图像通信。
 
-**版本 0.2.3** — 简化的 Agent API，仅少量公开类型。
+**版本 0.2.4** — 简化的 Agent API，仅少量公开类型。
 
 ## 安装
 
