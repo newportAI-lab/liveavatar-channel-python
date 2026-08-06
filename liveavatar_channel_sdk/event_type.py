@@ -13,6 +13,7 @@ class EventType(str, Enum):
 
     # Scene events (LiveKit DataChannel only; JS SDK → Live Avatar Service)
     SCENE_READY = "scene.ready"
+    SCENE_RESOURCE_TRANSITION = "scene.resourceTransition"
 
     # Input events
     INPUT_TEXT = "input.text"

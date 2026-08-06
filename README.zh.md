@@ -4,7 +4,7 @@
 
 用于 Live Avatar WebSocket 协议的 Python SDK。将你的 AI 后端连接到实时数字人服务，支持文本、音频和图像通信。
 
-**版本 0.2.6** — 简化的 Agent API，仅少量公开类型。
+**版本 0.2.7** — 简化的 Agent API，仅少量公开类型。
 
 ## 安装
 
@@ -40,7 +40,7 @@ SDK 的核心公开类型：
 | `AgentListener` | 回调接口 —— 覆盖你关心的事件（所有方法默认空实现） |
 | `AvatarAgentConfig` | 配置数据类 —— `api_key`、`avatar_id`、`base_url`、`sandbox`、`timeout`、`developer_tts`、`developer_asr`、`voice_id`、`voice_config`、`reconnect` |
 
-其他类型：`AudioFrame`、`AudioFrameBuilder`、`ImageFrame`、`ImageFrameBuilder`、`SessionState`、`EventType`、`SessionStartResult`、`ErrorCode` 等也可从顶层包直接导入。
+其他类型：`AudioFrame`、`AudioFrameBuilder`、`ImageFrame`、`ImageFrameBuilder`、`ResourceTransitionData`、`SessionState`、`EventType`、`SessionStartResult`、`ErrorCode` 等也可从顶层包直接导入。
 
 ### 1. 实现监听器
 
@@ -196,11 +196,41 @@ packed = frame.pack()   # bytes（9 字节头部 + 负载）
 | `on_text_input(text, request_id)` | 收到用户文本（输入或平台 ASR 结果） | **核心** —— 在这里回复用户消息 |
 | `on_session_init(session_id, user_id)` | 握手完成 | 日志、监控 |
 | `on_session_state(state: SessionState)` | 会话状态改变 | UI 同步、调试 |
+| `on_resource_transition(data: ResourceTransitionData)` | renderer 即将切换视频资源 | 日志、分析、业务同步 |
 | `on_session_closing(reason)` | 平台即将关闭连接 | 优雅关闭 |
 | `on_idle_trigger(reason, idle_time_ms)` | 用户长时间不活跃 | 发送空闲唤醒提示 |
 | `on_audio_frame(frame: AudioFrame)` | 来自平台的原始二进制音频 | 仅开发者 ASR 模式 |
 | `on_error(code, message)` | 来自平台或传输层的错误 | 错误处理/降级 |
 | `on_closed(code, reason)` | WebSocket 连接关闭 | 清理、重连逻辑 |
+
+### 视频资源切换回调
+
+`scene.resourceTransition` 只会通过 agent WebSocket 下发。它表示 renderer
+已经播放完当前视频，并即将切换到下一个已配置的视频资源。该事件是单向通知：
+回调返回值不会被平台读取，也不能确认、取消或延迟本次视频切换。
+
+```python
+class MyListener(AgentListener):
+    async def on_resource_transition(self, data: ResourceTransitionData) -> None:
+        logger.info(
+            "avatar video switched: %s -> %s",
+            data.previous_resource_id,
+            data.next_resource_id,
+        )
+```
+
+字段含义：
+
+| 字段 | 是否必填 | 含义 |
+|---|---|---|
+| `previous_resource_id` | 是 | 即将切走的上一个视频资源的稳定业务 ID。它不是 URL、文件路径或展示名称。 |
+| `next_resource_id` | 是 | 即将切到的下一个视频资源的稳定业务 ID。它不是 URL、文件路径或展示名称。 |
+| `message` | 否 | 平台补充的可读说明文本。它可能为空，只适合日志和排查，不要用它做业务分支判断。 |
+
+`session_id`、`request_id`、`timestamp` 是消息信封字段，不属于
+`ResourceTransitionData`。事件里刻意不提供 `stream_id`，因为当前 WebSocket
+会话已经限定了 stream 范围。如果平台下发的 payload 缺少任一资源 ID，或任一资源
+ID 为空白字符串，SDK 会丢弃该事件，不会触发 `on_resource_transition`。
 
 ## AvatarAgentConfig
 
@@ -307,6 +337,7 @@ python -m liveavatar_channel_sdk.example.live_avatar_service_simulator
 | `session.init` | `on_session_init` | 开启会话（SDK 自动回复 `session.ready`） |
 | `session.state` | `on_session_state` | 状态同步（含 `seq` 和 `timestamp`） |
 | `session.closing` | `on_session_closing` | 平台即将关闭（如超时） |
+| `scene.resourceTransition` | `on_resource_transition` | renderer 即将切换视频资源 |
 | `input.text` | `on_text_input` | 用户文本输入或平台 ASR 最终结果 |
 | `system.idleTrigger` | `on_idle_trigger` | 数字人空闲（`reason`、`idle_time_ms`） |
 | `error` | `on_error` | 平台错误 |

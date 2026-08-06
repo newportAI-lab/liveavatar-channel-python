@@ -178,6 +178,45 @@ After the user's frontend joins the LiveKit room and the avatar scene renders, t
 
 > This is a one-way notification. The agent does not reply to it.
 
+#### Live Avatar Service → Developer Backend (scene.resourceTransition)
+
+When the renderer finishes the current video and is about to switch to the next
+configured video resource, the coordinator forwards this notification to the
+agent over the existing agent WebSocket connection.
+
+```json
+{
+  "event": "scene.resourceTransition",
+  "sessionId": "sess_123",
+  "requestId": "renderer_req_1",
+  "timestamp": 1710000000000,
+  "data": {
+    "previousResourceId": "video_a",
+    "nextResourceId": "video_b",
+    "message": "switch from video_a to video_b"
+  }
+}
+```
+
+This is a one-way notification. The agent does not reply to it, and SDK callback
+return values do not acknowledge, cancel, or delay the renderer switch.
+
+The SDK dispatches the event to `AgentListener.on_resource_transition(data)`.
+
+| Field | Location | Required | Meaning |
+|---|---|---|---|
+| `previousResourceId` | `data` | Yes | Stable business ID of the video resource being switched away from. It is not a URL, file path, or display name. |
+| `nextResourceId` | `data` | Yes | Stable business ID of the video resource the renderer is about to switch to. It is not a URL, file path, or display name. |
+| `message` | `data` | No | Optional human-readable context supplied by the platform. Use it for logs or diagnostics only; do not branch business logic on it. |
+| `sessionId` | envelope | Yes | Session that delivered the event. It scopes the current WebSocket connection. |
+| `requestId` | envelope | No | Platform-generated request/correlation ID for tracing this notification. |
+| `timestamp` | envelope | No | Platform event time in epoch milliseconds when supplied. |
+
+There is no `streamId` in the typed SDK data. The active WebSocket session
+already scopes the stream. If either required resource ID is missing or blank,
+the SDK treats the payload as malformed and does not invoke
+`on_resource_transition`.
+
 ---
 
 ### 2️⃣ Heartbeat

@@ -18,6 +18,7 @@ from liveavatar_channel_sdk.audio_frame import AudioFrame
 from liveavatar_channel_sdk.event_type import EventType
 from liveavatar_channel_sdk.exponential_backoff_strategy import ExponentialBackoffStrategy
 from liveavatar_channel_sdk.message_builder import MessageBuilder
+from liveavatar_channel_sdk.resource_transition import ResourceTransitionData
 from liveavatar_channel_sdk.session_state import SessionState
 
 logger = logging.getLogger(__name__)
@@ -35,6 +36,7 @@ class _AgentCallbacks(Protocol):
 
     async def on_session_init(self, session_id: str, user_id: str) -> None: ...
     async def on_session_state(self, state: SessionState) -> None: ...
+    async def on_resource_transition(self, data: ResourceTransitionData) -> None: ...
     async def on_session_closing(self, reason: str | None) -> None: ...
     async def on_text_input(self, text: str, request_id: str) -> None: ...
     async def on_idle_trigger(self, reason: str, idle_time_ms: int) -> None: ...
@@ -174,6 +176,20 @@ class _AvatarWsClient:
                 await self._callbacks.on_session_state(
                     state=SessionState(data["state"])
                 )
+
+            elif event_type == EventType.SCENE_RESOURCE_TRANSITION:
+                # Required resource IDs are the contract boundary for this event.
+                # Missing keys raise and blank IDs are filtered here, so business
+                # callbacks never receive values that look like real resources.
+                transition = ResourceTransitionData(
+                    previous_resource_id=data["previousResourceId"],
+                    next_resource_id=data["nextResourceId"],
+                    message=data.get("message"),
+                )
+                if transition.has_required_resource_ids():
+                    await self._callbacks.on_resource_transition(data=transition)
+                else:
+                    logger.warning("Malformed scene.resourceTransition payload")
 
             elif event_type == EventType.SESSION_CLOSING:
                 await self._callbacks.on_session_closing(

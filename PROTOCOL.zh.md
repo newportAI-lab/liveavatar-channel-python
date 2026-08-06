@@ -174,6 +174,43 @@ sequenceDiagram
 
 > 此为单向通知，agent 无需回复。
 
+#### Client（数字人服务）→ Server（开发者服务）— scene.resourceTransition
+
+renderer 播放完当前视频、即将切换到下一个视频资源时，coordinator
+通过当前 agent WebSocket 连接将该通知转发给 agent。
+
+```json
+{
+  "event": "scene.resourceTransition",
+  "sessionId": "sess_123",
+  "requestId": "renderer_req_1",
+  "timestamp": 1710000000000,
+  "data": {
+    "previousResourceId": "video_a",
+    "nextResourceId": "video_b",
+    "message": "switch from video_a to video_b"
+  }
+}
+```
+
+此为单向通知，agent 无需回复。SDK 回调的返回值不会确认、取消或延迟 renderer
+的视频切换。
+
+SDK 会把该事件分发到 `AgentListener.on_resource_transition(data)`。
+
+| 字段 | 位置 | 是否必填 | 含义 |
+|---|---|---|---|
+| `previousResourceId` | `data` | 是 | 即将切走的上一个视频资源的稳定业务 ID。它不是 URL、文件路径或展示名称。 |
+| `nextResourceId` | `data` | 是 | 即将切到的下一个视频资源的稳定业务 ID。它不是 URL、文件路径或展示名称。 |
+| `message` | `data` | 否 | 平台补充的可读说明文本。只建议用于日志或排查，不要用它做业务分支判断。 |
+| `sessionId` | 信封 | 是 | 承载该事件的会话，用于限定当前 WebSocket 连接上下文。 |
+| `requestId` | 信封 | 否 | 平台生成的请求/关联 ID，用于链路追踪该通知。 |
+| `timestamp` | 信封 | 否 | 平台事件时间，单位为 epoch milliseconds。 |
+
+SDK 类型数据中没有 `streamId`。当前 WebSocket 会话已经限定了 stream 范围。如果任一
+必填资源 ID 缺失或为空，SDK 会把 payload 视为格式错误，并且不会触发
+`on_resource_transition`。
+
 ---
 
 ### 2️⃣ 心跳

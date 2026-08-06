@@ -14,6 +14,7 @@ from liveavatar_channel_sdk.image_frame_builder import ImageFrameBuilder
 from liveavatar_channel_sdk.session_state import SessionState
 from liveavatar_channel_sdk.event_type import EventType
 from liveavatar_channel_sdk.exponential_backoff_strategy import ExponentialBackoffStrategy
+from liveavatar_channel_sdk.resource_transition import ResourceTransitionData
 
 __all__ = [
     "AvatarAgent",
@@ -29,4 +30,5 @@ __all__ = [
     "SessionState",
     "EventType",
     "ExponentialBackoffStrategy",
+    "ResourceTransitionData",
 ]

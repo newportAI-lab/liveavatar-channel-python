@@ -16,6 +16,7 @@ from liveavatar_channel_sdk.avatar_agent import (
     _ListenerBridge,
 )
 from liveavatar_channel_sdk.event_type import EventType
+from liveavatar_channel_sdk.resource_transition import ResourceTransitionData
 from liveavatar_channel_sdk.session_models import SessionStartError, ErrorCode
 
 
@@ -41,6 +42,14 @@ class SceneReadyListener(AgentListener):
         self.scene_ready_count += 1
 
 
+class ResourceTransitionListener(AgentListener):
+    def __init__(self) -> None:
+        self.data = None
+
+    async def on_resource_transition(self, data: ResourceTransitionData) -> None:
+        self.data = data
+
+
 @pytest.fixture
 def agent() -> AvatarAgent:
     config = AvatarAgentConfig(api_key="sk-test", avatar_id="avatar-1")
@@ -61,6 +70,17 @@ async def test_listener_bridge_forwards_scene_ready():
     await bridge.on_scene_ready()
 
     assert listener.scene_ready_count == 1
+
+
+@pytest.mark.asyncio
+async def test_listener_bridge_forwards_resource_transition():
+    listener = ResourceTransitionListener()
+    bridge = _ListenerBridge(listener)
+    data = ResourceTransitionData("video-a", "video-b", "switch from video-a to video-b")
+
+    await bridge.on_resource_transition(data)
+
+    assert listener.data == data
 
 
 # -- Platform TTS -----------------------------------------------------------

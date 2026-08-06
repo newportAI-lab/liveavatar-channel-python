@@ -4,7 +4,7 @@
 
 A Python SDK for the Live Avatar WebSocket protocol. Connect your AI backend to a live avatar service with text, audio, and image communication.
 
-**Version 0.2.6** — simplified Agent API with a minimal set of public types.
+**Version 0.2.7** — simplified Agent API with a minimal set of public types.
 
 ## Installation
 
@@ -40,7 +40,7 @@ The SDK's core public types:
 | `AgentListener` | Callback interface -- override the events you care about (all methods are no-ops by default) |
 | `AvatarAgentConfig` | Configuration dataclass -- `api_key`, `avatar_id`, `base_url`, `sandbox`, `timeout`, `developer_tts`, `developer_asr`, `voice_id`, `voice_config`, `reconnect` |
 
-Additional types: `AudioFrame`, `AudioFrameBuilder`, `ImageFrame`, `ImageFrameBuilder`, `SessionState`, `EventType`, `SessionStartResult`, `ErrorCode`, and more are also available from the top-level package.
+Additional types: `AudioFrame`, `AudioFrameBuilder`, `ImageFrame`, `ImageFrameBuilder`, `ResourceTransitionData`, `SessionState`, `EventType`, `SessionStartResult`, `ErrorCode`, and more are also available from the top-level package.
 
 ### 1. Implement a listener
 
@@ -203,11 +203,43 @@ Override these on `AgentListener`. All are `async` with default no-op implementa
 | `on_text_input(text, request_id)` | User text received (typing or platform ASR) | **Core** -- respond to user messages here |
 | `on_session_init(session_id, user_id)` | Handshake complete | Logging, metrics |
 | `on_session_state(state: SessionState)` | Session state changed | UI sync, debugging |
+| `on_resource_transition(data: ResourceTransitionData)` | Renderer is about to switch video resources | Logging, analytics, business sync |
 | `on_session_closing(reason)` | Platform about to close connection | Graceful shutdown |
 | `on_idle_trigger(reason, idle_time_ms)` | Prolonged user inactivity | Send idle-wakeup prompt |
 | `on_audio_frame(frame: AudioFrame)` | Raw binary audio from platform | Developer ASR mode only |
 | `on_error(code, message)` | Error from platform or transport | Error handling / fallback |
 | `on_closed(code, reason)` | WebSocket connection closed | Cleanup, reconnect logic |
+
+### Video Resource Transition Callback
+
+`scene.resourceTransition` is delivered only to the agent WebSocket when the
+renderer has finished the current video and is about to switch to the next
+configured video resource. It is a one-way notification: returning from the
+callback does not acknowledge, cancel, or delay the renderer switch.
+
+```python
+class MyListener(AgentListener):
+    async def on_resource_transition(self, data: ResourceTransitionData) -> None:
+        logger.info(
+            "avatar video switched: %s -> %s",
+            data.previous_resource_id,
+            data.next_resource_id,
+        )
+```
+
+Field meanings:
+
+| Field | Required | Meaning |
+|---|---|---|
+| `previous_resource_id` | Yes | Stable business ID of the video resource being switched away from. It is not a URL, file path, or display name. |
+| `next_resource_id` | Yes | Stable business ID of the video resource the renderer is about to switch to. It is not a URL, file path, or display name. |
+| `message` | No | Human-readable context from the platform. Treat it as optional diagnostic text and do not branch business logic on it. |
+
+`session_id`, `request_id`, and `timestamp` are message envelope fields, not
+fields inside `ResourceTransitionData`. The event intentionally does not expose
+`stream_id` because the active WebSocket session already scopes the stream. If
+the platform sends a malformed payload with either resource ID missing or blank,
+the SDK drops it and does not invoke `on_resource_transition`.
 
 ## AvatarAgentConfig
 
@@ -314,6 +346,7 @@ Examples: `session.init`, `input.text`, `response.chunk`, `control.interrupt`
 | `session.init` | `on_session_init` | Open session (SDK auto-replies `session.ready`) |
 | `session.state` | `on_session_state` | State sync with `seq` and `timestamp` |
 | `session.closing` | `on_session_closing` | Platform about to close (e.g. timeout) |
+| `scene.resourceTransition` | `on_resource_transition` | Renderer is about to switch video resources |
 | `input.text` | `on_text_input` | User typed text or platform ASR final result |
 | `system.idleTrigger` | `on_idle_trigger` | Avatar has been idle (`reason`, `idle_time_ms`) |
 | `error` | `on_error` | Error from platform |

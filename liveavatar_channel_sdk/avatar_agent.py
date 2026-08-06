@@ -29,6 +29,7 @@ import httpx
 from liveavatar_channel_sdk._ws_client import _AvatarWsClient
 from liveavatar_channel_sdk.audio_frame import AudioFrame
 from liveavatar_channel_sdk.message_builder import MessageBuilder
+from liveavatar_channel_sdk.resource_transition import ResourceTransitionData
 from liveavatar_channel_sdk.session_models import (
     ErrorCode,
     SessionStartError,
@@ -81,6 +82,15 @@ class AgentListener:
 
     async def on_session_state(self, state: SessionState) -> None:
         """Session state changed (IDLE / LISTENING / SPEAKING / ...)."""
+
+    async def on_resource_transition(self, data: ResourceTransitionData) -> None:
+        """Renderer is about to switch from one video resource to another.
+
+        This is a one-way notification from the platform. Returning from this
+        callback does not acknowledge, cancel, or influence the renderer switch.
+        Use it for logging, analytics, business synchronization, or preparing
+        agent-side context for the next resource.
+        """
 
     async def on_session_closing(self, reason: str | None) -> None:
         """Platform is about to close the connection (e.g. timeout)."""
@@ -446,6 +456,12 @@ class _ListenerBridge:
             await self._listener.on_session_state(state)
         except Exception as exc:
             logger.error("on_session_state error: %s", exc)
+
+    async def on_resource_transition(self, data: ResourceTransitionData) -> None:
+        try:
+            await self._listener.on_resource_transition(data)
+        except Exception as exc:
+            logger.error("on_resource_transition error: %s", exc)
 
     async def on_session_closing(self, reason: str | None) -> None:
         try:
