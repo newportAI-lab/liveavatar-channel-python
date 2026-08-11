@@ -85,7 +85,6 @@ sequenceDiagram
     AppServer->>Platform: /session/start { avatarId, mode: "websocketAgent" } (API Key)
     Platform->>Avatar: 启动数字人
     Avatar->>RTC: 加入房间 (identity: renderer_{sessionId})
-    Platform->>RTC: 加入房间 (identity: coordinator_{sessionId})
     Avatar->>Platform: 启动完成
     Platform->>AppServer: { sessionId, userToken, agentWsUrl, sfuUrl }
     AppServer-->>Platform: 通过 agentWsUrl 建立 WebSocket 连接

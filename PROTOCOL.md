@@ -87,7 +87,6 @@ sequenceDiagram
     AppServer->>Platform: /session/start { avatarId, mode: "websocketAgent" } (API Key)
     Platform->>Avatar: Start avatar
     Avatar->>RTC: Join room (identity: renderer_{sessionId})
-    Platform->>RTC: Join room (identity: coordinator_{sessionId})
     Avatar->>Platform: Start complete
     Platform->>AppServer: { sessionId, userToken, agentWsUrl, sfuUrl }
     AppServer-->>Platform: Establish WebSocket connection via agentWsUrl

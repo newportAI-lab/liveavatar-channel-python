@@ -7,6 +7,8 @@ __pycache__/
 .DS_Store
 /CLAUDE.md
 /.omc
+/.codegraph
 /.worktrees/
 /dist
 AGENTS.md
+{{pkgetc}}/cert.pem
