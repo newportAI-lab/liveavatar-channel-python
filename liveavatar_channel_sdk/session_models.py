@@ -1,4 +1,4 @@
-"""Typed models for the Session REST API (POST /v1/session/start, /v1/session/stop)."""
+"""Typed models for the Session REST API (POST /v1/session/start)."""
 
 from __future__ import annotations
 

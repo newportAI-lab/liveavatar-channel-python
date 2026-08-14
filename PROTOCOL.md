@@ -28,6 +28,7 @@ We use the term "event" to designate message types. To prevent confusion as the 
 | Domain | Meaning |
 | --- | --- |
 | session | Session lifecycle |
+| scene | Avatar scene events |
 | input | User input |
 | response | Model output |
 | control | Control signals |
@@ -443,6 +444,18 @@ This message is typically sent proactively by the system just before a timeout i
 
 ---
 
+### 8️⃣ Session Stop (Sent by Developer Service)
+
+```json
+{
+  "event": "session.stop"
+}
+```
+
+Requests the Live Avatar Service to end the current session. The SDK sends it automatically from `AvatarAgent.stop()` before closing the WebSocket connection.
+
+---
+
 ## Scenario 2: Real-time Voice Input
 
 > **Design Principle — ASR Ownership:**
@@ -628,6 +641,22 @@ Prompt audio does not count toward the accumulated user idle time.
   "data": {
     "code": "ASR_FAIL",
     "message": "audio decode error"
+  }
+}
+```
+
+---
+
+### Error (Sent by the Live Avatar Service)
+
+The platform may also send an `error` event to the developer service to report platform-side failures. The SDK dispatches it to `AgentListener.on_error(code, message)`.
+
+```json
+{
+  "event": "error",
+  "data": {
+    "code": "PLATFORM_FAIL",
+    "message": "renderer crashed"
   }
 }
 ```

@@ -28,6 +28,7 @@
 | Domain | 含义 |
 | --- | --- |
 | session | 会话生命周期 |
+| scene | 数字人画面事件 |
 | input | 用户输入 |
 | response | 模型输出 |
 | control | 控制信号 |
@@ -437,6 +438,18 @@ sequenceDiagram
 
 ---
 
+### 8️⃣ 结束会话（开发者服务发送）
+
+```json
+{
+  "event": "session.stop"
+}
+```
+
+请求数字人服务结束当前会话。SDK 会在 `AvatarAgent.stop()` 中自动发送该事件，随后关闭 WebSocket 连接。
+
+---
+
 ## 场景二：实时语音输入
 
 > **设计原则 — ASR 归属权：**
@@ -622,6 +635,22 @@ prompt 音频不参与用户闲置累计计时。
   "data": {
     "code": "ASR_FAIL",
     "message": "audio decode error"
+  }
+}
+```
+
+---
+
+### 错误（数字人服务发送）
+
+平台也可能向开发者服务发送 `error` 事件，用于报告平台侧故障。SDK 会将其分发到 `AgentListener.on_error(code, message)`。
+
+```json
+{
+  "event": "error",
+  "data": {
+    "code": "PLATFORM_FAIL",
+    "message": "renderer crashed"
   }
 }
 ```

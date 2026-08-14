@@ -87,7 +87,7 @@ async def main():
 
     # ... wait for callbacks ...
 
-    await agent.stop()   # idempotent -- closes WS + calls /session/stop
+    await agent.stop()   # idempotent -- sends session.stop, then closes WS
 
 asyncio.run(main())
 ```
@@ -194,6 +194,12 @@ Metadata cannot override reserved protocol data fields such as `text`,
 |---|---|---|
 | `send_error(code, message, request_id=None)` | `error` | Report an error to the platform |
 
+### Custom
+
+| Method | Event | Description |
+|---|---|---|
+| `send_custom_event(request_id, event, data=None)` | *(custom)* | Send an application-specific event not defined in the standard protocol |
+
 ## Listener Callbacks
 
 Override these on `AgentListener`. All are `async` with default no-op implementations.
@@ -206,6 +212,7 @@ Override these on `AgentListener`. All are `async` with default no-op implementa
 | `on_resource_transition(data: ResourceTransitionData)` | Renderer is about to switch video resources | Logging, analytics, business sync |
 | `on_session_closing(reason)` | Platform about to close connection | Graceful shutdown |
 | `on_idle_trigger(reason, idle_time_ms)` | Prolonged user inactivity | Send idle-wakeup prompt |
+| `on_scene_ready()` | Frontend scene ready (platform forwards `scene.ready`) | Begin the conversation |
 | `on_audio_frame(frame: AudioFrame)` | Raw binary audio from platform | Developer ASR mode only |
 | `on_error(code, message)` | Error from platform or transport | Error handling / fallback |
 | `on_closed(code, reason)` | WebSocket connection closed | Cleanup, reconnect logic |
@@ -296,7 +303,7 @@ The SDK handles everything inside `start()`:
 3. Connects to the returned `agentWsUrl` via WebSocket.
 4. Waits for `session.init` and replies `session.ready` automatically.
 5. Dispatches incoming events to your `AgentListener` callbacks.
-6. `stop()` disconnects the WebSocket and calls `POST /v1/session/stop`.
+6. `stop()` sends `session.stop` over the WebSocket, then disconnects.
 
 ### Session States
 
@@ -346,6 +353,7 @@ Examples: `session.init`, `input.text`, `response.chunk`, `control.interrupt`
 | `session.init` | `on_session_init` | Open session (SDK auto-replies `session.ready`) |
 | `session.state` | `on_session_state` | State sync with `seq` and `timestamp` |
 | `session.closing` | `on_session_closing` | Platform about to close (e.g. timeout) |
+| `scene.ready` | `on_scene_ready` | Frontend scene ready; conversation may begin |
 | `scene.resourceTransition` | `on_resource_transition` | Renderer is about to switch video resources |
 | `input.text` | `on_text_input` | User typed text or platform ASR final result |
 | `system.idleTrigger` | `on_idle_trigger` | Avatar has been idle (`reason`, `idle_time_ms`) |
@@ -371,6 +379,7 @@ Examples: `session.init`, `input.text`, `response.chunk`, `control.interrupt`
 | `control.interrupt` | `send_interrupt` | Proactive interrupt (business-logic-driven) |
 | `system.prompt` | `send_prompt` | Push idle-wakeup text |
 | `error` | `send_error` | Error report |
+| *(custom)* | `send_custom_event` | Application-specific event not in the standard protocol |
 
 > **Bidirectional events:** `input.asr.*` / `input.voice.*` are sent by whoever provides ASR (developer in Omni mode, platform otherwise). The SDK provides both listener callbacks (receive) and send helpers (transmit) for these events. Set `developer_asr=True` in your config when your code runs ASR.
 

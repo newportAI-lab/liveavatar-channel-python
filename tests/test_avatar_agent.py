@@ -26,12 +26,16 @@ class FakeWs:
     def __init__(self) -> None:
         self.json_messages: List[dict] = []
         self.binary_messages: List[bytes] = []
+        self.disconnected = False
 
     async def send_json(self, message: dict) -> None:
         self.json_messages.append(message)
 
     async def send_binary(self, data: bytes) -> None:
         self.binary_messages.append(data)
+
+    async def disconnect(self) -> None:
+        self.disconnected = True
 
 
 class SceneReadyListener(AgentListener):
@@ -446,6 +450,28 @@ async def test_send_before_start_raises():
     agent = AvatarAgent(config, listener)
     with pytest.raises(RuntimeError, match="Not connected"):
         await agent.send_response_done("req-1", "resp-1")
+
+
+# -- Lifecycle: stop --------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_stop_sends_session_stop(agent: AvatarAgent):
+    agent._session_id = "sess-1"
+    ws = _inject_ws(agent, FakeWs())
+    await agent.stop()
+    assert ws.json_messages[0]["event"] == EventType.SESSION_STOP
+    assert ws.disconnected
+    assert agent._ws_client is None
+    assert agent.session_id is None
+
+
+@pytest.mark.asyncio
+async def test_stop_is_idempotent(agent: AvatarAgent):
+    ws = _inject_ws(agent, FakeWs())
+    await agent.stop()
+    await agent.stop()
+    assert len(ws.json_messages) == 1
 
 
 # -- REST integration tests (pytest-httpx) ----------------------------------

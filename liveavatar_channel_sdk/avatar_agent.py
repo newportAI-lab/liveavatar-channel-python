@@ -237,23 +237,17 @@ class AvatarAgent:
         return result
 
     async def stop(self) -> None:
-        """Idempotent stop: disconnect WS and call POST /session/stop."""
+        """Idempotent stop: send ``session.stop`` over WS, then disconnect."""
         if self._ws_client is not None:
+            try:
+                await self._ws_client.send_json(MessageBuilder.session_stop())
+            except Exception as exc:
+                logger.warning("Error sending session.stop: %s", exc)
             try:
                 await self._ws_client.disconnect()
             except Exception:
                 pass
             self._ws_client = None
-
-        if self._session_id is not None and self._http_client is not None:
-            try:
-                resp = await self._http_client.post(
-                    "/v1/session/stop",
-                    json={"sessionId": self._session_id},
-                )
-                resp.raise_for_status()
-            except Exception as exc:
-                logger.warning("Error calling /session/stop: %s", exc)
 
         if self._http_client is not None:
             await self._http_client.aclose()

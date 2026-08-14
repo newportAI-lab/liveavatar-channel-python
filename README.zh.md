@@ -87,7 +87,7 @@ async def main():
 
     # ... 等待回调 ...
 
-    await agent.stop()   # 幂等 —— 关闭 WS + 调用 /session/stop
+    await agent.stop()   # 幂等 —— 发送 session.stop 后关闭 WS
 
 asyncio.run(main())
 ```
@@ -187,6 +187,12 @@ packed = frame.pack()   # bytes（9 字节头部 + 负载）
 |---|---|---|
 | `send_error(code, message, request_id=None)` | `error` | 向平台报告错误 |
 
+### 自定义
+
+| 方法 | 事件 | 说明 |
+|---|---|---|
+| `send_custom_event(request_id, event, data=None)` | *(自定义)* | 发送标准协议之外的应用自定义事件 |
+
 ## 监听器回调
 
 在 `AgentListener` 上覆盖这些方法。所有方法都是 `async` 且默认空实现。
@@ -199,6 +205,7 @@ packed = frame.pack()   # bytes（9 字节头部 + 负载）
 | `on_resource_transition(data: ResourceTransitionData)` | renderer 即将切换视频资源 | 日志、分析、业务同步 |
 | `on_session_closing(reason)` | 平台即将关闭连接 | 优雅关闭 |
 | `on_idle_trigger(reason, idle_time_ms)` | 用户长时间不活跃 | 发送空闲唤醒提示 |
+| `on_scene_ready()` | 前端数字人画面就绪（平台转发 `scene.ready`） | 开始对话 |
 | `on_audio_frame(frame: AudioFrame)` | 来自平台的原始二进制音频 | 仅开发者 ASR 模式 |
 | `on_error(code, message)` | 来自平台或传输层的错误 | 错误处理/降级 |
 | `on_closed(code, reason)` | WebSocket 连接关闭 | 清理、重连逻辑 |
@@ -287,7 +294,7 @@ SDK 在 `start()` 内部自动完成以下步骤：
 3. 通过 WebSocket 连接到返回的 `agentWsUrl`。
 4. 等待 `session.init` 并自动回复 `session.ready`。
 5. 将入站事件分发到你的 `AgentListener` 回调。
-6. `stop()` 断开 WebSocket 并调用 `POST /v1/session/stop`。
+6. `stop()` 通过 WebSocket 发送 `session.stop`，随后断开连接。
 
 ### 会话状态
 
@@ -337,6 +344,7 @@ python -m liveavatar_channel_sdk.example.live_avatar_service_simulator
 | `session.init` | `on_session_init` | 开启会话（SDK 自动回复 `session.ready`） |
 | `session.state` | `on_session_state` | 状态同步（含 `seq` 和 `timestamp`） |
 | `session.closing` | `on_session_closing` | 平台即将关闭（如超时） |
+| `scene.ready` | `on_scene_ready` | 前端画面就绪，可以开始对话 |
 | `scene.resourceTransition` | `on_resource_transition` | renderer 即将切换视频资源 |
 | `input.text` | `on_text_input` | 用户文本输入或平台 ASR 最终结果 |
 | `system.idleTrigger` | `on_idle_trigger` | 数字人空闲（`reason`、`idle_time_ms`） |
@@ -362,6 +370,7 @@ python -m liveavatar_channel_sdk.example.live_avatar_service_simulator
 | `control.interrupt` | `send_interrupt` | 主动打断（业务逻辑驱动） |
 | `system.prompt` | `send_prompt` | 推送空闲唤醒文本 |
 | `error` | `send_error` | 错误报告 |
+| *(自定义)* | `send_custom_event` | 标准协议之外的应用自定义事件 |
 
 > **双向事件：** `input.asr.*` / `input.voice.*` 由 ASR 提供方发送（Omni 模式下由开发者发送，否则由平台发送）。SDK 同时提供监听器回调（接收）和发送辅助方法（发送）。当你的代码运行 ASR 时，在配置中设置 `developer_asr=True`。
 
