@@ -30,6 +30,7 @@ from liveavatar_channel_sdk._ws_client import _AvatarWsClient
 from liveavatar_channel_sdk.audio_frame import AudioFrame
 from liveavatar_channel_sdk.message_builder import MessageBuilder
 from liveavatar_channel_sdk.resource_transition import ResourceTransitionData
+from liveavatar_channel_sdk.response_stream import _ResponseLifecycle
 from liveavatar_channel_sdk.session_models import (
     ErrorCode,
     SessionStartError,
@@ -170,6 +171,7 @@ class AvatarAgent:
         self._http_client: httpx.AsyncClient | None = None
         self._session_id: str | None = None
         self._session_init_event = asyncio.Event()
+        self._response_lifecycle = _ResponseLifecycle(self._send_response_json)
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -293,6 +295,9 @@ class AvatarAgent:
             raise RuntimeError("Not connected — call start() first")
         return self._ws_client
 
+    async def _send_response_json(self, message: dict) -> None:
+        await self._require_ws().send_json(message)
+
     # -- send: Platform TTS ------------------------------------------------
 
     async def send_response_start(
@@ -305,8 +310,13 @@ class AvatarAgent:
         mood: str | None = None,
         metadata: dict | None = None,
     ) -> None:
-        await self._require_ws().send_json(
-            MessageBuilder.response_start(request_id, response_id, speed, volume, mood, metadata)
+        await self._response_lifecycle.legacy_start(
+            request_id,
+            response_id,
+            speed,
+            volume,
+            mood,
+            metadata,
         )
 
     async def send_response_chunk(
@@ -318,19 +328,22 @@ class AvatarAgent:
         text: str,
         metadata: dict | None = None,
     ) -> None:
-        await self._require_ws().send_json(
-            MessageBuilder.response_chunk(request_id, response_id, seq, timestamp, text, metadata)
+        await self._response_lifecycle.legacy_chunk(
+            request_id,
+            response_id,
+            seq,
+            timestamp,
+            text,
+            metadata,
         )
 
     async def send_response_done(
         self, request_id: str, response_id: str, metadata: dict | None = None
     ) -> None:
-        await self._require_ws().send_json(
-            MessageBuilder.response_done(request_id, response_id, metadata)
-        )
+        await self._response_lifecycle.legacy_done(request_id, response_id, metadata)
 
     async def send_response_cancel(self, response_id: str) -> None:
-        await self._require_ws().send_json(MessageBuilder.response_cancel(response_id))
+        await self._response_lifecycle.legacy_cancel(response_id)
 
     # -- send: Developer TTS -----------------------------------------------
 

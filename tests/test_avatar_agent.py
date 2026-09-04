@@ -130,10 +130,10 @@ async def test_send_response_start_with_metadata(agent: AvatarAgent):
 @pytest.mark.asyncio
 async def test_send_response_chunk(agent: AvatarAgent):
     ws = _inject_ws(agent, FakeWs())
-    await agent.send_response_chunk("req-1", "resp-1", seq=3, timestamp=1000, text="hi")
+    await agent.send_response_chunk("req-1", "resp-1", seq=0, timestamp=1000, text="hi")
     msg = ws.json_messages[0]
     assert msg["event"] == EventType.RESPONSE_CHUNK
-    assert msg["seq"] == 3
+    assert msg["seq"] == 0
     assert msg["data"]["text"] == "hi"
 
 
@@ -143,7 +143,7 @@ async def test_send_response_chunk_with_metadata(agent: AvatarAgent):
     await agent.send_response_chunk(
         "req-1",
         "resp-1",
-        seq=3,
+        seq=0,
         timestamp=1000,
         text="hi",
         metadata={"questionId": "q-1", "exchangeId": "ex-1"},
@@ -157,19 +157,21 @@ async def test_send_response_chunk_with_metadata(agent: AvatarAgent):
 @pytest.mark.asyncio
 async def test_send_response_done(agent: AvatarAgent):
     ws = _inject_ws(agent, FakeWs())
+    await agent.send_response_chunk("req-1", "resp-1", 0, 1000, "hi")
     await agent.send_response_done("req-1", "resp-1")
-    assert ws.json_messages[0]["event"] == EventType.RESPONSE_DONE
+    assert ws.json_messages[-1]["event"] == EventType.RESPONSE_DONE
 
 
 @pytest.mark.asyncio
 async def test_send_response_done_with_metadata(agent: AvatarAgent):
     ws = _inject_ws(agent, FakeWs())
+    await agent.send_response_chunk("req-1", "resp-1", 0, 1000, "hi")
     await agent.send_response_done(
         "req-1",
         "resp-1",
         metadata={"questionId": "q-1", "exchangeId": "ex-1"},
     )
-    msg = ws.json_messages[0]
+    msg = ws.json_messages[-1]
     assert msg["event"] == EventType.RESPONSE_DONE
     assert msg["data"]["questionId"] == "q-1"
     assert msg["data"]["exchangeId"] == "ex-1"
@@ -178,8 +180,9 @@ async def test_send_response_done_with_metadata(agent: AvatarAgent):
 @pytest.mark.asyncio
 async def test_send_response_cancel(agent: AvatarAgent):
     ws = _inject_ws(agent, FakeWs())
+    await agent.send_response_chunk("req-1", "resp-1", 0, 1000, "hi")
     await agent.send_response_cancel("resp-1")
-    assert ws.json_messages[0]["event"] == EventType.RESPONSE_CANCEL
+    assert ws.json_messages[-1]["event"] == EventType.RESPONSE_CANCEL
 
 
 # -- Developer TTS ----------------------------------------------------------
@@ -449,7 +452,7 @@ async def test_send_before_start_raises():
     listener = AgentListener()
     agent = AvatarAgent(config, listener)
     with pytest.raises(RuntimeError, match="Not connected"):
-        await agent.send_response_done("req-1", "resp-1")
+        await agent.send_response_chunk("req-1", "resp-1", 0, 1000, "hi")
 
 
 # -- Lifecycle: stop --------------------------------------------------------
