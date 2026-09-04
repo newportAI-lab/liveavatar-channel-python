@@ -28,6 +28,8 @@ def test_documentation_describes_response_stream_lifecycle_and_release_version()
     package_metadata = (REPOSITORY_ROOT / "pyproject.toml").read_text()
     normalized_english_protocol = " ".join(english_protocol.split())
     normalized_chinese_protocol = " ".join(chinese_protocol.split())
+    normalized_english_readme = " ".join(english_readme.split())
+    normalized_chinese_readme = " ".join(chinese_readme.split())
 
     assert "MUST use the same `requestId` and `responseId`." in normalized_english_protocol
     assert "MUST be followed by `response.done`" in normalized_english_protocol
@@ -35,6 +37,11 @@ def test_documentation_describes_response_stream_lifecycle_and_release_version()
     assert "必须使用相同的 `requestId` 和 `responseId`。" in normalized_chinese_protocol
     assert "必须紧接着发送相同标识符的 `response.done`" in normalized_chinese_protocol
     assert "不同的 request ID 可按应用策略并发处理" in normalized_chinese_protocol
+
+    assert "exactly one active legacy response" in normalized_english_readme
+    assert "Zero or multiple matches raise `ResponseStreamStateError`" in normalized_english_readme
+    assert "恰好一个活动的旧响应" in normalized_chinese_readme
+    assert "零个或多个匹配都会抛出 `ResponseStreamStateError`" in normalized_chinese_readme
 
     for readme in (english_readme, chinese_readme):
         quick_start = readme.split("### 2.", maxsplit=1)[0]

@@ -110,12 +110,12 @@ await agent.send_response_done(request_id, response_id)
 ```
 
 If an active legacy response receives a different `response_id` in a chunk or
-done call, the SDK sends the active ID and raises a `DeprecationWarning` so the
+done call, the SDK sends the active ID and emits a `DeprecationWarning` so the
 caller can migrate safely. A wrong `request_id` is never rewritten: it raises
 `ResponseStreamStateError` before sending. The preserved
 `send_response_cancel(response_id)` signature has no `request_id`; it cancels
-only an active response with that exact response ID, and an unknown ID raises
-`ResponseStreamStateError`.
+only when that response ID has exactly one active legacy response. Zero or
+multiple matches raise `ResponseStreamStateError`.
 
 ## Build Binary Frames
 

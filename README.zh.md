@@ -110,8 +110,8 @@ await agent.send_response_done(request_id, response_id)
 活动中的旧响应在 chunk 或 done 调用中收到不同的 `response_id` 时，SDK 会发送
 活动 ID 并发出 `DeprecationWarning`，以便调用方安全迁移。错误的 `request_id`
 绝不会被重写：SDK 会在发送前抛出 `ResponseStreamStateError`。保留的
-`send_response_cancel(response_id)` 签名没有 `request_id`；它只会取消具有该精确
-response ID 的活动响应，未知 ID 会抛出 `ResponseStreamStateError`。
+`send_response_cancel(response_id)` 签名没有 `request_id`；它仅在该 response ID
+对应恰好一个活动的旧响应时取消。零个或多个匹配都会抛出 `ResponseStreamStateError`。
 
 ## 构建二进制帧
 
