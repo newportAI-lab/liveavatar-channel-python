@@ -17,7 +17,8 @@ identifier reuse and stream termination are automatic.
 
 - Preserve the current Python method signatures and argument order.
 - Make correctly ordered legacy calls reuse one active `responseId`.
-- Prevent overlapping text responses on one `AvatarAgent`.
+- Prevent overlapping text responses for the same `request_id` while allowing
+  independent request IDs to progress concurrently.
 - Reject lifecycle errors that cannot be inferred safely, especially a
   mismatched `request_id`.
 - Add `ResponseStream` as the recommended response API.
@@ -25,7 +26,7 @@ identifier reuse and stream termination are automatic.
 
 ## Non-goals
 
-- Supporting multiple concurrent text responses on one agent.
+- Supporting multiple concurrent responses for the same `request_id`.
 - Guessing that two different `request_id` values refer to the same turn.
 - Making `AvatarAgent` safe to use from multiple OS threads or event loops.
 - Changing developer-TTS audio stream lifecycle in this change.
@@ -61,7 +62,7 @@ identifier management.
 
 ## Lifecycle State
 
-`AvatarAgent` owns at most one active text response:
+`AvatarAgent` owns at most one active text response per `request_id`:
 
 ```python
 @dataclass
@@ -76,9 +77,13 @@ class _ActiveResponse:
 that legacy calls cannot mutate a stream owned by the new API and one stream
 instance cannot operate on another stream's state.
 
-An `asyncio.Lock` protects each lifecycle transition and its associated
-WebSocket send as one critical section. This prevents two asyncio tasks from
-simultaneously observing no active response and creating different responses.
+The coordinator stores `_ActiveResponse` values in a dictionary keyed by
+`request_id`. An `asyncio.Lock` protects each lifecycle transition and its
+associated WebSocket send as one critical section. This prevents two asyncio
+tasks from simultaneously observing no active response for the same request
+and creating different responses. Different request IDs have independent
+state and may both be active, even though their short state transitions are
+serialized through the coordinator lock.
 The SDK continues to support one event loop only; it does not claim OS-thread
 safety.
 
@@ -91,18 +96,17 @@ transport access.
 
 ### `send_response_start`
 
-- With no active response, store the supplied identifiers and send
+- With no active response for `request_id`, store the supplied identifiers and send
   `response.start`.
-- With any active response, raise `ResponseStreamStateError` without sending.
+- With an active response for the same `request_id`, raise
+  `ResponseStreamStateError` without sending.
 - A failed WebSocket send does not leave a newly created active response.
 
 ### `send_response_chunk`
 
-- With no active response, establish one from the supplied identifiers and
+- With no active response for `request_id`, establish one from the supplied identifiers and
   send the chunk. `response.start` remains optional and is not synthesized.
-- With an active response and a different `request_id`, raise
-  `ResponseStreamStateError` without sending.
-- With an active response and a different supplied `response_id`, emit
+- With an active response for that request and a different supplied `response_id`, emit
   `DeprecationWarning` and send the active response ID.
 - Require `seq == next_seq`. Duplicate, decreasing, or skipped sequence
   numbers raise `ResponseStreamStateError` without sending.
@@ -111,9 +115,8 @@ transport access.
 
 ### `send_response_done`
 
-- Require an active legacy response.
-- Require the active `request_id`; a different value raises
-  `ResponseStreamStateError`.
+- Require an active legacy response under the supplied `request_id`; an
+  unknown or mistyped ID raises `ResponseStreamStateError`.
 - Override a different supplied `response_id` with the active ID and emit
   `DeprecationWarning`.
 - Clear active state only after `response.done` is sent successfully. A failed
@@ -121,13 +124,12 @@ transport access.
 
 ### `send_response_cancel`
 
-- Require an active legacy response.
-- Override a different supplied `response_id` with the active ID and emit
-  `DeprecationWarning`.
-- Clear active state only after `response.cancel` is sent successfully.
-- Calling cancel without an active response raises
-  `ResponseStreamStateError`; the SDK no longer sends cancellation for an
-  unknown response.
+- Because this preserved signature has no `request_id`, require the supplied
+  `response_id` to exactly match one active legacy response.
+- Never select an entry by dictionary order, by "only active response", or by
+  another heuristic; a miss raises `ResponseStreamStateError` without sending.
+- Clear only the exactly matched request entry, and only after
+  `response.cancel` is sent successfully.
 
 ### `send_interrupt`
 
@@ -177,8 +179,10 @@ class ResponseStream:
 ```
 
 The SDK generates `response_id` once with `uuid.uuid4()` when the stream is
-created. Entering the async context claims the agent's single active response;
-if another response is active, entry raises `ResponseStreamStateError`.
+created. Entering the async context claims the active response slot for its
+`request_id`; if that request already has an active response, entry raises
+`ResponseStreamStateError`. Streams for different request IDs may be active
+concurrently.
 
 When `send_start=True`, entering sends `response.start` using the factory's
 audio configuration and metadata. When false, entry only claims the response
@@ -221,15 +225,14 @@ minimum even though the existing repository uses postponed annotations.
 
 The SDK does not automatically interrupt, cancel, or finish an active response
 when another input arrives. Application policy decides whether to wait,
-cancel, or explicitly interrupt. Attempts to start or send chunks for another
-`request_id` while a response remains active fail locally. This makes accidental
-overlap visible and prevents rejected dispatcher traffic.
+cancel, explicitly interrupt, or process distinct request IDs concurrently.
+Attempts to start a second response for the same `request_id` fail locally;
+different request IDs remain independent.
 
-The simulator will keep a reference to its current response task. It will not
-unconditionally create overlapping echo tasks. For its simple policy, a new
-input while responding is logged and ignored; production applications can
-instead cancel their model task and close the stream according to business
-requirements.
+The simulator will keep response tasks keyed by `request_id`. It rejects a
+duplicate active delivery of the same request, but allows different request
+IDs to run concurrently. Production applications can additionally cancel a
+model task and close its matching stream according to business requirements.
 
 ## Documentation Changes
 
@@ -253,14 +256,17 @@ Legacy compatibility tests cover:
 - start/chunk/chunk/done sends one response ID;
 - first chunk creates state without a start event;
 - a newly generated ID on every chunk and done is overridden and warned;
-- a mismatched request ID sends nothing and raises;
+- done with an unknown or mistyped request ID sends nothing and raises without
+  affecting any other request;
 - duplicate, decreasing, and skipped sequence values send nothing and raise;
-- duplicate start and overlapping requests are rejected;
-- successful done and cancel clear state;
+- duplicate start for the same request is rejected while different requests
+  can both be active;
+- successful done and exact-ID cancel clear only their matching request state;
 - failed start/first-chunk sends roll back creation;
 - failed chunk does not advance sequence;
 - failed done/cancel retains state for retry;
-- concurrent first chunks result in one active response and one local error.
+- concurrent first chunks for one request result in one active response and
+  one local error;
 
 `ResponseStream` tests cover:
 
@@ -271,8 +277,9 @@ Legacy compatibility tests cover:
 - explicit done avoids duplicate done on exit;
 - exception exit sends cancel and preserves the original exception;
 - cancel failure does not replace the original exception;
-- overlapping streams, legacy/new API mixing, reuse, and writes after terminal
-  state are rejected.
+- overlapping streams for the same request, legacy/new API mixing on that
+  request, reuse, and writes after terminal state are rejected; streams for
+  different requests can proceed concurrently.
 
 Documentation examples are exercised as focused integration-style tests where
 practical. The full `pytest` suite and `ruff check .` must pass.
@@ -282,7 +289,8 @@ practical. The full `pytest` suite and `ruff check .` must pass.
 - Existing Python calls require no signature changes.
 - A legacy caller that supplies a new response ID for each correctly ordered
   chunk sends one stable ID on the wire and receives a warning locally.
-- No response can start while another response is active on the same agent.
+- No second response can start while the same `request_id` already has an
+  active response; distinct request IDs are independent.
 - Every successful `ResponseStream` context ends in exactly one done or cancel.
 - Invalid request association and sequence transitions fail before a WebSocket
   message is sent.
