@@ -288,6 +288,17 @@ SDK 类型数据中没有 `streamId`。当前 WebSocket 会话已经限定了 st
 
 ---
 
+#### 响应生命周期要求
+
+- 入站 `requestId` 必须原样传播，且不得根据墙上时钟时间生成。
+- 所有完整响应中的 chunk 必须使用相同的 `requestId` 和 `responseId`。
+- 最后一个 chunk 后必须紧接着发送相同标识符的 `response.done`，除非该响应被显式取消。
+- 同一 request ID 已有活动响应时，不得开始新的响应；不同的 request ID 可按应用策略并发处理。
+- `requestId` → `responseId` = 1:N 表示同一请求的多个顺序完成的响应，绝不表示每个 chunk 使用一个 response ID。
+- `control.interrupt` 仅用于真实的业务驱动打断；它不能替代被打断响应的 `response.done` 或 `response.cancel`。
+
+---
+
 #### chunk（文本）
 
 ```json
@@ -317,11 +328,7 @@ SDK 类型数据中没有 `streamId`。当前 WebSocket 会话已经限定了 st
 
 ---
 
-requestId → responseId = 1:N
-
 seq = response 内递增。
-
-response 可以是多个 agent 回复的。
 
 ---
 

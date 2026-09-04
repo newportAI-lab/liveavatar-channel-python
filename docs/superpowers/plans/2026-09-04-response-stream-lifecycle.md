@@ -30,6 +30,7 @@
 - Modify `tests/test_avatar_agent.py`: update old isolated send tests to valid lifecycle sequences while retaining payload assertions.
 - Modify `liveavatar_channel_sdk/example/live_avatar_service_simulator.py`: track `ResponseStream` tasks by request ID and reject only duplicate active deliveries of the same request.
 - Modify `README.md`, `README.zh.md`, `PROTOCOL.md`, and `PROTOCOL.zh.md`: make lifecycle rules normative and `ResponseStream` primary.
+- Modify `pyproject.toml`: bump the SDK minor version from `0.2.7` to `0.3.0`.
 
 ---
 
@@ -491,6 +492,7 @@ git commit -m "docs: migrate simulator to response stream"
 ### Task 4: Protocol and README Migration Guidance
 
 **Files:**
+- Modify: `pyproject.toml:7`
 - Modify: `README.md:45-62,145-185,360-380`
 - Modify: `README.zh.md:45-62,145-182,350-372`
 - Modify: `PROTOCOL.md:290-330,365-390`
@@ -500,6 +502,7 @@ git commit -m "docs: migrate simulator to response stream"
 **Interfaces:**
 - Consumes: final public API from Task 2.
 - Produces: normative lifecycle documentation and copyable safe examples.
+- Produces: SDK version `0.3.0` consistently declared in package metadata and both READMEs.
 
 - [ ] **Step 1: Add documentation contract tests**
 
@@ -511,6 +514,9 @@ not contain a hard-coded `"resp-1"`.
 Run: `pytest tests/test_response_stream.py -k documentation -v`
 
 Expected: FAIL against the current documentation.
+
+Also assert `pyproject.toml`, `README.md`, and `README.zh.md` declare version
+`0.3.0` and no longer declare `0.2.7`.
 
 - [ ] **Step 2: Make `ResponseStream` the primary README example**
 
@@ -555,11 +561,14 @@ Run: `git diff --check`
 
 Expected: no output and exit code 0.
 
+Verify `python -m build` metadata reports `0.3.0` if the `build` module is
+already installed; do not add a runtime dependency solely for this check.
+
 - [ ] **Step 5: Commit documentation**
 
 ```bash
-git add README.md README.zh.md PROTOCOL.md PROTOCOL.zh.md tests/test_response_stream.py
-git commit -m "docs: clarify response lifecycle rules"
+git add pyproject.toml README.md README.zh.md PROTOCOL.md PROTOCOL.zh.md tests/test_response_stream.py
+git commit -m "docs: release response stream lifecycle in 0.3.0"
 ```
 
 ---
@@ -613,6 +622,7 @@ Verify manually that:
 - errors never include response text or metadata;
 - every coordinator cleanup occurs only after a successful terminal send;
 - documentation and simulator use `ResponseStream` as the primary pattern.
+- package metadata and both READMEs consistently report SDK version `0.3.0`.
 
 - [ ] **Step 6: Commit any verification-only corrections**
 

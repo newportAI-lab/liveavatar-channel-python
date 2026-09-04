@@ -4,7 +4,7 @@
 
 A Python SDK for the Live Avatar WebSocket protocol. Connect your AI backend to a live avatar service with text, audio, and image communication.
 
-**Version 0.2.7** — simplified Agent API with a minimal set of public types.
+**Version 0.3.0** — simplified Agent API with a minimal set of public types.
 
 ## Installation
 
@@ -40,7 +40,7 @@ The SDK's core public types:
 | `AgentListener` | Callback interface -- override the events you care about (all methods are no-ops by default) |
 | `AvatarAgentConfig` | Configuration dataclass -- `api_key`, `avatar_id`, `base_url`, `sandbox`, `timeout`, `developer_tts`, `developer_asr`, `voice_id`, `voice_config`, `reconnect` |
 
-Additional types: `AudioFrame`, `AudioFrameBuilder`, `ImageFrame`, `ImageFrameBuilder`, `ResourceTransitionData`, `SessionState`, `EventType`, `SessionStartResult`, `ErrorCode`, and more are also available from the top-level package.
+Additional types: `ResponseStream`, `ResponseStreamStateError`, `AudioFrame`, `AudioFrameBuilder`, `ImageFrame`, `ImageFrameBuilder`, `ResourceTransitionData`, `SessionState`, `EventType`, `SessionStartResult`, `ErrorCode`, and more are also available from the top-level package.
 
 ### 1. Implement a listener
 
@@ -49,15 +49,9 @@ from liveavatar_channel_sdk import AgentListener
 
 class MyAgent(AgentListener):
     async def on_text_input(self, text: str, request_id: str) -> None:
-        """Core callback: user text received."""
-        reply = await my_ai.chat(text)
-
-        # Stream the response back
-        await self.agent.send_response_start(request_id, "resp-1")
-        await self.agent.send_response_chunk(
-            request_id, "resp-1", seq=0, timestamp=0, text=reply,
-        )
-        await self.agent.send_response_done(request_id, "resp-1")
+        async with self.agent.response_stream(request_id) as response:
+            async for token in my_ai.stream(text):
+                await response.send_chunk(token)
 
     async def on_session_init(self, session_id: str, user_id: str) -> None:
         print(f"Session opened: {session_id}  user: {user_id}")
@@ -93,6 +87,35 @@ asyncio.run(main())
 ```
 
 That is the complete pattern. `start()` blocks until the `session.init` handshake completes (or a timeout occurs). The `session.ready` reply is sent automatically -- you do not need to send it manually.
+
+### Response-stream migration
+
+`response_stream()` is the recommended API. It creates one `response_id`, keeps
+the sequence numbers in order, and sends `response.done` when its async context
+exits normally. Propagate the inbound `request_id` unchanged; do not generate it
+from wall-clock time.
+
+The lower-level response methods remain callable with their existing signatures,
+but `send_response_start`, `send_response_chunk`, `send_response_done`, and
+`send_response_cancel` are deprecated. For a legacy integration, create exactly
+one response ID before the first chunk and reuse it through `done`:
+
+```python
+import uuid
+
+response_id = str(uuid.uuid4())
+await agent.send_response_start(request_id, response_id)
+await agent.send_response_chunk(request_id, response_id, 0, timestamp, token)
+await agent.send_response_done(request_id, response_id)
+```
+
+If an active legacy response receives a different `response_id` in a chunk or
+done call, the SDK sends the active ID and raises a `DeprecationWarning` so the
+caller can migrate safely. A wrong `request_id` is never rewritten: it raises
+`ResponseStreamStateError` before sending. The preserved
+`send_response_cancel(response_id)` signature has no `request_id`; it cancels
+only an active response with that exact response ID, and an unknown ID raises
+`ResponseStreamStateError`.
 
 ## Build Binary Frames
 
@@ -151,10 +174,10 @@ All send methods are available on `AvatarAgent`. They are grouped by protocol ro
 
 | Method | Event | Description |
 |---|---|---|
-| `send_response_start(request_id, response_id, *, speed, volume, mood, metadata=None)` | `response.start` | Optional: configure TTS parameters before streaming |
-| `send_response_chunk(request_id, response_id, seq, timestamp, text, metadata=None)` | `response.chunk` | Streaming text chunk |
-| `send_response_done(request_id, response_id, metadata=None)` | `response.done` | End of streaming response |
-| `send_response_cancel(response_id)` | `response.cancel` | Cancel an in-progress response stream |
+| `send_response_start(request_id, response_id, *, speed, volume, mood, metadata=None)` | `response.start` | Deprecated; optional TTS configuration before streaming |
+| `send_response_chunk(request_id, response_id, seq, timestamp, text, metadata=None)` | `response.chunk` | Deprecated; streaming text chunk |
+| `send_response_done(request_id, response_id, metadata=None)` | `response.done` | Deprecated; end of streaming response |
+| `send_response_cancel(response_id)` | `response.cancel` | Deprecated; cancel an in-progress response stream by exact response ID |
 
 ### Developer TTS (you provide audio frames directly)
 

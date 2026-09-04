@@ -294,6 +294,24 @@ Sent by the Developer Service **before** the first `response.chunk`. Use this to
 
 ---
 
+#### Response lifecycle requirements
+
+- Inbound `requestId` values MUST be propagated unchanged and MUST NOT be
+  generated from wall-clock time.
+- All chunks in one complete response MUST use the same `requestId` and
+  `responseId`.
+- The final chunk MUST be followed by `response.done` with the same identifiers,
+  unless the response is explicitly cancelled.
+- A new response for the same request ID MUST NOT begin while that request
+  already has an active response; distinct request IDs may be processed
+  concurrently according to application policy.
+- `requestId` → `responseId` = 1:N means sequential complete responses for one
+  request, never one response ID per chunk.
+- `control.interrupt` is only for a real business-driven interruption; it does
+  not replace `response.done` or `response.cancel` for the interrupted stream.
+
+---
+
 #### chunk (Text)
 
 ```json
@@ -323,11 +341,7 @@ Sent by the Developer Service **before** the first `response.chunk`. Use this to
 
 ---
 
-requestId → responseId = 1:N
-
 `seq` increments sequentially within a single response.
-
-A single response may consist of replies from multiple agents.
 
 ---
 

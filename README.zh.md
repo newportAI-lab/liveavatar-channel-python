@@ -4,7 +4,7 @@
 
 用于 Live Avatar WebSocket 协议的 Python SDK。将你的 AI 后端连接到实时数字人服务，支持文本、音频和图像通信。
 
-**版本 0.2.7** — 简化的 Agent API，仅少量公开类型。
+**版本 0.3.0** — 简化的 Agent API，仅少量公开类型。
 
 ## 安装
 
@@ -40,7 +40,7 @@ SDK 的核心公开类型：
 | `AgentListener` | 回调接口 —— 覆盖你关心的事件（所有方法默认空实现） |
 | `AvatarAgentConfig` | 配置数据类 —— `api_key`、`avatar_id`、`base_url`、`sandbox`、`timeout`、`developer_tts`、`developer_asr`、`voice_id`、`voice_config`、`reconnect` |
 
-其他类型：`AudioFrame`、`AudioFrameBuilder`、`ImageFrame`、`ImageFrameBuilder`、`ResourceTransitionData`、`SessionState`、`EventType`、`SessionStartResult`、`ErrorCode` 等也可从顶层包直接导入。
+其他类型：`ResponseStream`、`ResponseStreamStateError`、`AudioFrame`、`AudioFrameBuilder`、`ImageFrame`、`ImageFrameBuilder`、`ResourceTransitionData`、`SessionState`、`EventType`、`SessionStartResult`、`ErrorCode` 等也可从顶层包直接导入。
 
 ### 1. 实现监听器
 
@@ -49,15 +49,9 @@ from liveavatar_channel_sdk import AgentListener
 
 class MyAgent(AgentListener):
     async def on_text_input(self, text: str, request_id: str) -> None:
-        """核心回调：收到用户文本消息。"""
-        reply = await my_ai.chat(text)
-
-        # 流式返回响应
-        await self.agent.send_response_start(request_id, "resp-1")
-        await self.agent.send_response_chunk(
-            request_id, "resp-1", seq=0, timestamp=0, text=reply,
-        )
-        await self.agent.send_response_done(request_id, "resp-1")
+        async with self.agent.response_stream(request_id) as response:
+            async for token in my_ai.stream(text):
+                await response.send_chunk(token)
 
     async def on_session_init(self, session_id: str, user_id: str) -> None:
         print(f"会话已建立：{session_id}  用户：{user_id}")
@@ -93,6 +87,31 @@ asyncio.run(main())
 ```
 
 这就是完整的模式。`start()` 会阻塞直到 `session.init` 握手完成（或超时）。`session.ready` 由 SDK 自动发送，无需手动处理。
+
+### 响应流迁移
+
+推荐使用 `response_stream()`。它会创建一个 `response_id`、保持 `seq`
+按顺序递增，并在异步上下文正常退出时发送 `response.done`。请原样传播入站
+`request_id`，不要根据墙上时钟时间生成它。
+
+底层响应方法仍可按现有签名调用，但 `send_response_start`、
+`send_response_chunk`、`send_response_done` 和 `send_response_cancel` 已弃用。
+旧集成中，请在第一个 chunk 之前只创建一次 response ID，并一直复用到 `done`：
+
+```python
+import uuid
+
+response_id = str(uuid.uuid4())
+await agent.send_response_start(request_id, response_id)
+await agent.send_response_chunk(request_id, response_id, 0, timestamp, token)
+await agent.send_response_done(request_id, response_id)
+```
+
+活动中的旧响应在 chunk 或 done 调用中收到不同的 `response_id` 时，SDK 会发送
+活动 ID 并发出 `DeprecationWarning`，以便调用方安全迁移。错误的 `request_id`
+绝不会被重写：SDK 会在发送前抛出 `ResponseStreamStateError`。保留的
+`send_response_cancel(response_id)` 签名没有 `request_id`；它只会取消具有该精确
+response ID 的活动响应，未知 ID 会抛出 `ResponseStreamStateError`。
 
 ## 构建二进制帧
 
@@ -148,10 +167,10 @@ packed = frame.pack()   # bytes（9 字节头部 + 负载）
 
 | 方法 | 事件 | 说明 |
 |---|---|---|
-| `send_response_start(request_id, response_id, *, speed, volume, mood, metadata=None)` | `response.start` | 可选：在流式传输前配置 TTS 参数 |
-| `send_response_chunk(request_id, response_id, seq, timestamp, text, metadata=None)` | `response.chunk` | 流式文本片段 |
-| `send_response_done(request_id, response_id, metadata=None)` | `response.done` | 流式响应结束 |
-| `send_response_cancel(response_id)` | `response.cancel` | 取消进行中的响应流 |
+| `send_response_start(request_id, response_id, *, speed, volume, mood, metadata=None)` | `response.start` | 已弃用；可选：在流式传输前配置 TTS 参数 |
+| `send_response_chunk(request_id, response_id, seq, timestamp, text, metadata=None)` | `response.chunk` | 已弃用；流式文本片段 |
+| `send_response_done(request_id, response_id, metadata=None)` | `response.done` | 已弃用；流式响应结束 |
+| `send_response_cancel(response_id)` | `response.cancel` | 已弃用；按精确 response ID 取消进行中的响应流 |
 
 ### Developer TTS（你直接提供音频帧）
 
