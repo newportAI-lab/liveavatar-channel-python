@@ -51,8 +51,13 @@ class EchoAgent(AgentListener):
             return
         task = asyncio.create_task(self._echo(request_id, text))
         self._response_tasks[request_id] = task
+
+        def remove_completed_task(completed: asyncio.Task, rid: str = request_id) -> None:
+            if self._response_tasks.get(rid) is completed:
+                self._response_tasks.pop(rid)
+
         task.add_done_callback(
-            lambda completed, rid=request_id: self._response_tasks.pop(rid, None)
+            remove_completed_task
         )
 
     async def on_session_init(self, session_id: str, user_id: str) -> None:

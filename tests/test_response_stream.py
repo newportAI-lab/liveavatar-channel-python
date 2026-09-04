@@ -109,6 +109,43 @@ async def test_simulator_rejects_duplicate_active_request_but_runs_other_request
     await asyncio.gather(*tasks)
 
 
+@pytest.mark.asyncio
+async def test_simulator_stale_task_callback_keeps_replacement_registered():
+    listener = EchoAgent()
+    listener.agent = object()
+    first_release = asyncio.Event()
+    second_release = asyncio.Event()
+    first_started = asyncio.Event()
+    replacement = None
+
+    async def controlled_echo(request_id: str, text: str) -> None:
+        if text == "first":
+            first_started.set()
+            await first_release.wait()
+        else:
+            await second_release.wait()
+
+    listener._echo = controlled_echo
+
+    await listener.on_text_input("first", "request-1")
+    await first_started.wait()
+    first_task = listener._response_tasks["request-1"]
+
+    async def replace_finished_task() -> None:
+        nonlocal replacement
+        await listener.on_text_input("second", "request-1")
+        replacement = listener._response_tasks["request-1"]
+
+    first_release.set()
+    await asyncio.create_task(replace_finished_task())
+
+    assert first_task.done()
+    assert listener._response_tasks["request-1"] is replacement
+
+    second_release.set()
+    await replacement
+
+
 def test_response_stream_types_are_exported():
     from liveavatar_channel_sdk import ResponseStream, ResponseStreamStateError
 
