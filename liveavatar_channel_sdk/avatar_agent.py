@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import uuid
 from dataclasses import dataclass
 import httpx
 
@@ -30,7 +31,7 @@ from liveavatar_channel_sdk._ws_client import _AvatarWsClient
 from liveavatar_channel_sdk.audio_frame import AudioFrame
 from liveavatar_channel_sdk.message_builder import MessageBuilder
 from liveavatar_channel_sdk.resource_transition import ResourceTransitionData
-from liveavatar_channel_sdk.response_stream import _ResponseLifecycle
+from liveavatar_channel_sdk.response_stream import ResponseStream, _ResponseLifecycle
 from liveavatar_channel_sdk.session_models import (
     ErrorCode,
     SessionStartError,
@@ -301,6 +302,34 @@ class AvatarAgent:
         await self._require_ws().send_json(message)
 
     # -- send: Platform TTS ------------------------------------------------
+
+    def response_stream(
+        self,
+        request_id: str,
+        *,
+        speed: float = 1.0,
+        volume: float = 1.0,
+        mood: str | None = None,
+        metadata: dict | None = None,
+        send_start: bool = False,
+    ) -> ResponseStream:
+        response_id = str(uuid.uuid4())
+        start_message = None
+        if send_start:
+            start_message = MessageBuilder.response_start(
+                request_id,
+                response_id,
+                speed,
+                volume,
+                mood,
+                metadata,
+            )
+        return ResponseStream(
+            self._response_lifecycle,
+            request_id,
+            response_id,
+            start_message=start_message,
+        )
 
     async def send_response_start(
         self,

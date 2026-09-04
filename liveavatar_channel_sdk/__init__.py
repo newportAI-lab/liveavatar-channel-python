@@ -15,6 +15,7 @@ from liveavatar_channel_sdk.session_state import SessionState
 from liveavatar_channel_sdk.event_type import EventType
 from liveavatar_channel_sdk.exponential_backoff_strategy import ExponentialBackoffStrategy
 from liveavatar_channel_sdk.resource_transition import ResourceTransitionData
+from liveavatar_channel_sdk.response_stream import ResponseStream, ResponseStreamStateError
 
 __all__ = [
     "AvatarAgent",
@@ -31,4 +32,6 @@ __all__ = [
     "EventType",
     "ExponentialBackoffStrategy",
     "ResourceTransitionData",
+    "ResponseStream",
+    "ResponseStreamStateError",
 ]

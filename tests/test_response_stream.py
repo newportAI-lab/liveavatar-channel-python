@@ -44,6 +44,315 @@ def agent() -> AvatarAgent:
     )
 
 
+def test_response_stream_types_are_exported():
+    from liveavatar_channel_sdk import ResponseStream, ResponseStreamStateError
+
+    assert issubclass(ResponseStreamStateError, RuntimeError)
+    assert ResponseStream.__module__ == "liveavatar_channel_sdk.response_stream"
+
+
+def test_response_stream_factory_exposes_request_and_generated_response_ids(
+    agent: AvatarAgent,
+):
+    from liveavatar_channel_sdk import ResponseStream
+
+    response = agent.response_stream("req-1")
+
+    assert isinstance(response, ResponseStream)
+    assert response.request_id == "req-1"
+    assert response.response_id
+
+
+@pytest.mark.asyncio
+async def test_response_stream_reuses_id_sequences_chunks_and_auto_dones(
+    agent: AvatarAgent,
+):
+    ws = RecordingWs()
+    agent._ws_client = ws
+
+    async with agent.response_stream("req-1") as response:
+        response_id = response.response_id
+        assert response.request_id == "req-1"
+        await response.send_chunk("first", timestamp=1000)
+        await response.send_chunk("second", timestamp=1001)
+
+    assert [message["event"] for message in ws.messages] == [
+        EventType.RESPONSE_CHUNK,
+        EventType.RESPONSE_CHUNK,
+        EventType.RESPONSE_DONE,
+    ]
+    assert {message["responseId"] for message in ws.messages} == {response_id}
+    assert [message.get("seq") for message in ws.messages[:2]] == [0, 1]
+
+
+@pytest.mark.asyncio
+async def test_response_stream_send_start_uses_factory_configuration(agent: AvatarAgent):
+    ws = RecordingWs()
+    agent._ws_client = ws
+
+    async with agent.response_stream(
+        "req-1",
+        speed=1.5,
+        volume=0.75,
+        mood="happy",
+        metadata={"source": "test"},
+        send_start=True,
+    ) as response:
+        await response.send_chunk("hello", timestamp=1000)
+
+    assert ws.messages[0] == {
+        "event": EventType.RESPONSE_START,
+        "requestId": "req-1",
+        "responseId": response.response_id,
+        "data": {
+            "audioConfig": {"speed": 1.5, "volume": 0.75, "mood": "happy"},
+            "source": "test",
+        },
+    }
+
+
+@pytest.mark.asyncio
+async def test_response_stream_generates_epoch_millisecond_timestamp(
+    agent: AvatarAgent,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    ws = RecordingWs()
+    agent._ws_client = ws
+    monkeypatch.setattr(
+        "liveavatar_channel_sdk.response_stream.time.time_ns",
+        lambda: 1_725_000_123_456_789_000,
+    )
+
+    async with agent.response_stream("req-1") as response:
+        await response.send_chunk("hello")
+
+    assert ws.messages[0]["timestamp"] == 1_725_000_123_456
+
+
+@pytest.mark.asyncio
+async def test_response_stream_explicit_done_is_not_repeated_on_exit(agent: AvatarAgent):
+    ws = RecordingWs()
+    agent._ws_client = ws
+
+    async with agent.response_stream("req-1") as response:
+        await response.send_chunk("hello", timestamp=1000)
+        await response.done({"reason": "complete"})
+
+    assert [message["event"] for message in ws.messages] == [
+        EventType.RESPONSE_CHUNK,
+        EventType.RESPONSE_DONE,
+    ]
+    assert ws.messages[-1]["data"] == {"reason": "complete"}
+
+
+@pytest.mark.asyncio
+async def test_response_stream_cancel_is_not_followed_by_done_on_exit(agent: AvatarAgent):
+    ws = RecordingWs()
+    agent._ws_client = ws
+
+    async with agent.response_stream("req-1") as response:
+        await response.cancel()
+
+    assert [message["event"] for message in ws.messages] == [EventType.RESPONSE_CANCEL]
+    assert ws.messages[0]["responseId"] == response.response_id
+
+
+@pytest.mark.asyncio
+async def test_response_stream_exception_cancels_and_preserves_original_exception(
+    agent: AvatarAgent,
+):
+    ws = RecordingWs()
+    agent._ws_client = ws
+    original = ValueError("application failure")
+
+    with pytest.raises(ValueError) as error:
+        async with agent.response_stream("req-1"):
+            raise original
+
+    assert error.value is original
+    assert [message["event"] for message in ws.messages] == [EventType.RESPONSE_CANCEL]
+
+
+@pytest.mark.asyncio
+async def test_response_stream_cancel_failure_preserves_and_notes_original_exception(
+    agent: AvatarAgent,
+    caplog: pytest.LogCaptureFixture,
+):
+    ws = FailingWs(fail_on=1)
+    agent._ws_client = ws
+    original = ValueError("application failure")
+    response = agent.response_stream("req-1")
+
+    with pytest.raises(ValueError) as error:
+        async with response:
+            raise original
+
+    assert error.value is original
+    if hasattr(original, "add_note"):
+        assert any(
+            "failed to cancel response stream: selected send failure" in note
+            for note in original.__notes__
+        )
+    else:
+        assert "failed to cancel response stream: selected send failure" in caplog.text
+
+    await response.cancel()
+    assert ws.messages[-1]["event"] == EventType.RESPONSE_CANCEL
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["send_chunk", "done", "cancel"])
+async def test_response_stream_rejects_use_before_entry(
+    agent: AvatarAgent,
+    operation: str,
+):
+    response = agent.response_stream("req-1")
+
+    with pytest.raises(ResponseStreamStateError, match="has not been entered"):
+        if operation == "send_chunk":
+            await response.send_chunk("hello", timestamp=1000)
+        else:
+            await getattr(response, operation)()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("terminal_operation", ["done", "cancel"])
+@pytest.mark.parametrize("later_operation", ["send_chunk", "done", "cancel"])
+async def test_response_stream_rejects_use_after_terminal_state(
+    agent: AvatarAgent,
+    terminal_operation: str,
+    later_operation: str,
+):
+    ws = RecordingWs()
+    agent._ws_client = ws
+    response = agent.response_stream("req-1")
+    await response.__aenter__()
+    await getattr(response, terminal_operation)()
+
+    with pytest.raises(ResponseStreamStateError, match="already terminal"):
+        if later_operation == "send_chunk":
+            await response.send_chunk("hello", timestamp=1000)
+        else:
+            await getattr(response, later_operation)()
+
+
+@pytest.mark.asyncio
+async def test_response_stream_reenter_is_rejected(agent: AvatarAgent):
+    ws = RecordingWs()
+    agent._ws_client = ws
+    response = agent.response_stream("req-1")
+
+    async with response:
+        with pytest.raises(ResponseStreamStateError, match="entered twice"):
+            await response.__aenter__()
+
+
+@pytest.mark.asyncio
+async def test_response_stream_owner_blocks_other_stream_and_legacy_operations(
+    agent: AvatarAgent,
+):
+    ws = RecordingWs()
+    agent._ws_client = ws
+
+    async with agent.response_stream("req-1") as response:
+        other = agent.response_stream("req-1")
+        with pytest.raises(ResponseStreamStateError):
+            await other.__aenter__()
+        with pytest.raises(ResponseStreamStateError):
+            await agent.send_response_start("req-1", "legacy-start")
+        with pytest.raises(ResponseStreamStateError):
+            await agent.send_response_chunk("req-1", "legacy-chunk", 0, 1000, "blocked")
+        with pytest.raises(ResponseStreamStateError):
+            await agent.send_response_done("req-1", "legacy-done")
+        with pytest.raises(ResponseStreamStateError):
+            await agent.send_response_cancel(response.response_id)
+
+        assert ws.messages == []
+
+    assert [message["event"] for message in ws.messages] == [EventType.RESPONSE_DONE]
+
+
+@pytest.mark.asyncio
+async def test_response_stream_cannot_claim_legacy_owned_request(agent: AvatarAgent):
+    ws = RecordingWs()
+    agent._ws_client = ws
+    await agent.send_response_start("req-1", "legacy-response")
+    response = agent.response_stream("req-1")
+
+    with pytest.raises(ResponseStreamStateError):
+        await response.__aenter__()
+
+    await agent.send_response_done("req-1", "legacy-response")
+    assert [message["event"] for message in ws.messages] == [
+        EventType.RESPONSE_START,
+        EventType.RESPONSE_DONE,
+    ]
+
+
+@pytest.mark.asyncio
+async def test_concurrent_response_stream_enters_for_same_request_have_one_winner(
+    agent: AvatarAgent,
+):
+    ws = RecordingWs()
+    agent._ws_client = ws
+    gate = asyncio.Event()
+    first = agent.response_stream("req-1")
+    second = agent.response_stream("req-1")
+
+    async def enter(response):
+        await gate.wait()
+        return await response.__aenter__()
+
+    tasks = [asyncio.create_task(enter(first)), asyncio.create_task(enter(second))]
+    gate.set()
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    assert sum(result in (first, second) for result in results) == 1
+    assert sum(isinstance(result, ResponseStreamStateError) for result in results) == 1
+    winner = next(result for result in results if result in (first, second))
+    await winner.done()
+    assert [message["event"] for message in ws.messages] == [EventType.RESPONSE_DONE]
+
+
+@pytest.mark.asyncio
+async def test_legacy_and_response_stream_for_different_requests_complete_independently(
+    agent: AvatarAgent,
+):
+    ws = RecordingWs()
+    agent._ws_client = ws
+    await agent.send_response_chunk("legacy-request", "legacy-response", 0, 1000, "one")
+
+    async with agent.response_stream("stream-request") as response:
+        await response.send_chunk("two", timestamp=1001)
+        await agent.send_response_done("legacy-request", "legacy-response")
+
+    assert [(message.get("requestId"), message["event"]) for message in ws.messages] == [
+        ("legacy-request", EventType.RESPONSE_CHUNK),
+        ("stream-request", EventType.RESPONSE_CHUNK),
+        ("legacy-request", EventType.RESPONSE_DONE),
+        ("stream-request", EventType.RESPONSE_DONE),
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("terminal_operation", ["done", "cancel"])
+async def test_response_stream_failed_terminal_send_keeps_stream_open_for_retry(
+    agent: AvatarAgent,
+    terminal_operation: str,
+):
+    ws = FailingWs(fail_on=1)
+    agent._ws_client = ws
+    response = agent.response_stream("req-1")
+    await response.__aenter__()
+
+    with pytest.raises(OSError, match="selected send failure"):
+        await getattr(response, terminal_operation)()
+
+    await getattr(response, terminal_operation)()
+    expected = EventType.RESPONSE_DONE if terminal_operation == "done" else EventType.RESPONSE_CANCEL
+    assert ws.messages[-1]["event"] == expected
+
+
 @pytest.mark.asyncio
 async def test_legacy_chunks_and_done_reuse_first_response_id(agent: AvatarAgent):
     ws = RecordingWs()
@@ -222,11 +531,20 @@ async def test_concurrent_duplicate_first_chunks_create_only_one_active_response
     ws = RecordingWs()
     agent._ws_client = ws
 
-    results = await asyncio.gather(
-        agent.send_response_chunk("req-1", "resp-1", 0, 1000, "first"),
-        agent.send_response_chunk("req-1", "resp-2", 0, 1001, "second"),
-        return_exceptions=True,
-    )
+    gate = asyncio.Event()
+
+    async def send(response_id: str, timestamp: int, text: str):
+        await gate.wait()
+        return await agent.send_response_chunk(
+            "req-1", response_id, 0, timestamp, text
+        )
+
+    tasks = [
+        asyncio.create_task(send("resp-1", 1000, "first")),
+        asyncio.create_task(send("resp-2", 1001, "second")),
+    ]
+    gate.set()
+    results = await asyncio.gather(*tasks, return_exceptions=True)
 
     assert sum(result is None for result in results) == 1
     assert sum(isinstance(result, ResponseStreamStateError) for result in results) == 1
