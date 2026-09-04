@@ -21,8 +21,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import time
-import uuid
 
 from liveavatar_channel_sdk.avatar_agent import AvatarAgent, AgentListener, AvatarAgentConfig
 from liveavatar_channel_sdk.audio_frame import AudioFrame
@@ -42,11 +40,20 @@ class EchoAgent(AgentListener):
     def __init__(self) -> None:
         self.agent: AvatarAgent | None = None
         self.response_done = asyncio.Event()
+        self._response_tasks: dict[str, asyncio.Task] = {}
 
     async def on_text_input(self, text: str, request_id: str) -> None:
         logger.info("<-- input.text  request_id=%s  text=%r", request_id, text)
         assert self.agent is not None
-        asyncio.ensure_future(self._echo(request_id, text))
+        task = self._response_tasks.get(request_id)
+        if task is not None and not task.done():
+            logger.warning("Ignoring duplicate active request: request_id=%s", request_id)
+            return
+        task = asyncio.create_task(self._echo(request_id, text))
+        self._response_tasks[request_id] = task
+        task.add_done_callback(
+            lambda completed, rid=request_id: self._response_tasks.pop(rid, None)
+        )
 
     async def on_session_init(self, session_id: str, user_id: str) -> None:
         logger.info("<-- session.init  session_id=%s  user_id=%s", session_id, user_id)
@@ -70,22 +77,19 @@ class EchoAgent(AgentListener):
         logger.info("<-- closed  code=%d  reason=%s", code, reason)
 
     async def _echo(self, request_id: str, text: str) -> None:
-        response_id = str(uuid.uuid4())
         words = text.split()
         if not words:
             words = [text]
 
-        await self.agent.send_response_start(request_id, response_id)
-        logger.info("--> response.start  response_id=%s", response_id)
+        assert self.agent is not None
+        async with self.agent.response_stream(request_id, send_start=True) as response:
+            logger.info("--> response.start  response_id=%s", response.response_id)
+            for word in words:
+                await response.send_chunk(word + " ")
+                logger.info("--> response.chunk  response_id=%s", response.response_id)
+                await asyncio.sleep(0.05)
 
-        for seq, word in enumerate(words):
-            ts = int(time.monotonic() * 1000) & 0xFFFFF
-            await self.agent.send_response_chunk(request_id, response_id, seq, ts, word + " ")
-            logger.info("--> response.chunk  response_id=%s  seq=%d", response_id, seq)
-            await asyncio.sleep(0.05)
-
-        await self.agent.send_response_done(request_id, response_id)
-        logger.info("--> response.done  response_id=%s", response_id)
+        logger.info("--> response.done  response_id=%s", response.response_id)
         self.response_done.set()
 
 

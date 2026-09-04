@@ -12,6 +12,7 @@ from liveavatar_channel_sdk.avatar_agent import (
     AvatarAgentConfig,
 )
 from liveavatar_channel_sdk.event_type import EventType
+from liveavatar_channel_sdk.example.live_avatar_service_simulator import EchoAgent
 from liveavatar_channel_sdk.response_stream import ResponseStreamStateError
 
 
@@ -36,12 +37,76 @@ class FailingWs(RecordingWs):
         await super().send_json(message)
 
 
+class RecordingResponseStream:
+    def __init__(self, request_id: str, release: asyncio.Event) -> None:
+        self.request_id = request_id
+        self.response_id = "response-" + request_id
+        self._release = release
+        self.chunk_sent = asyncio.Event()
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_value, traceback) -> None:
+        return None
+
+    async def send_chunk(self, text: str) -> None:
+        self.chunk_sent.set()
+        await self._release.wait()
+
+
+class RecordingResponseStreamAgent:
+    def __init__(self) -> None:
+        self.release = asyncio.Event()
+        self.streams = []
+        self.stream_created = asyncio.Event()
+
+    def response_stream(self, request_id: str, *, send_start: bool):
+        stream = RecordingResponseStream(request_id, self.release)
+        self.streams.append(stream)
+        self.stream_created.set()
+        return stream
+
+
 @pytest.fixture
 def agent() -> AvatarAgent:
     return AvatarAgent(
         AvatarAgentConfig(api_key="sk-test", avatar_id="avatar-1"),
         AgentListener(),
     )
+
+
+@pytest.mark.asyncio
+async def test_simulator_rejects_duplicate_active_request_but_runs_other_requests():
+    listener = EchoAgent()
+    fake_agent = RecordingResponseStreamAgent()
+    listener.agent = fake_agent
+
+    async def controlled_echo(request_id: str, text: str) -> None:
+        async with fake_agent.response_stream(request_id, send_start=True) as response:
+            await response.send_chunk(text)
+
+    listener._echo = controlled_echo
+
+    await listener.on_text_input("first", "request-1")
+    await fake_agent.stream_created.wait()
+    await fake_agent.streams[0].chunk_sent.wait()
+    fake_agent.stream_created.clear()
+
+    await listener.on_text_input("duplicate", "request-1")
+    assert [stream.request_id for stream in fake_agent.streams] == ["request-1"]
+
+    await listener.on_text_input("second", "request-2")
+    await fake_agent.stream_created.wait()
+    await fake_agent.streams[1].chunk_sent.wait()
+    assert [stream.request_id for stream in fake_agent.streams] == [
+        "request-1",
+        "request-2",
+    ]
+
+    tasks = list(listener._response_tasks.values())
+    fake_agent.release.set()
+    await asyncio.gather(*tasks)
 
 
 def test_response_stream_types_are_exported():
