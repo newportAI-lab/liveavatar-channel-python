@@ -56,9 +56,7 @@ class EchoAgent(AgentListener):
             if self._response_tasks.get(rid) is completed:
                 self._response_tasks.pop(rid)
 
-        task.add_done_callback(
-            remove_completed_task
-        )
+        task.add_done_callback(remove_completed_task)
 
     async def on_session_init(self, session_id: str, user_id: str) -> None:
         logger.info("<-- session.init  session_id=%s  user_id=%s", session_id, user_id)

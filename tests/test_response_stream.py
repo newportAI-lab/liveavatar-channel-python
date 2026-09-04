@@ -490,7 +490,9 @@ async def test_response_stream_failed_terminal_send_keeps_stream_open_for_retry(
         await getattr(response, terminal_operation)()
 
     await getattr(response, terminal_operation)()
-    expected = EventType.RESPONSE_DONE if terminal_operation == "done" else EventType.RESPONSE_CANCEL
+    expected = (
+        EventType.RESPONSE_DONE if terminal_operation == "done" else EventType.RESPONSE_CANCEL
+    )
     assert ws.messages[-1]["event"] == expected
 
 
@@ -676,9 +678,7 @@ async def test_concurrent_duplicate_first_chunks_create_only_one_active_response
 
     async def send(response_id: str, timestamp: int, text: str):
         await gate.wait()
-        return await agent.send_response_chunk(
-            "req-1", response_id, 0, timestamp, text
-        )
+        return await agent.send_response_chunk("req-1", response_id, 0, timestamp, text)
 
     tasks = [
         asyncio.create_task(send("resp-1", 1000, "first")),
