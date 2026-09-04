@@ -38,6 +38,13 @@ class FakeWs:
         self.disconnected = True
 
 
+class StopSendFailingWs(FakeWs):
+    async def send_json(self, message: dict) -> None:
+        if message["event"] == EventType.SESSION_STOP:
+            raise OSError("session.stop send failed")
+        await super().send_json(message)
+
+
 class SceneReadyListener(AgentListener):
     def __init__(self) -> None:
         self.scene_ready_count = 0
@@ -475,6 +482,30 @@ async def test_stop_is_idempotent(agent: AvatarAgent):
     await agent.stop()
     await agent.stop()
     assert len(ws.json_messages) == 1
+
+
+@pytest.mark.asyncio
+async def test_stop_clears_unfinished_response_before_reusing_request_id(agent: AvatarAgent):
+    _inject_ws(agent, FakeWs())
+    await agent.send_response_chunk("req-1", "resp-old", 0, 1000, "unfinished")
+
+    await agent.stop()
+    restarted_ws = _inject_ws(agent, FakeWs())
+    await agent.send_response_chunk("req-1", "resp-new", 0, 2000, "new session")
+
+    assert restarted_ws.json_messages[0]["responseId"] == "resp-new"
+
+
+@pytest.mark.asyncio
+async def test_stop_send_failure_still_clears_unfinished_response(agent: AvatarAgent):
+    _inject_ws(agent, StopSendFailingWs())
+    await agent.send_response_chunk("req-1", "resp-old", 0, 1000, "unfinished")
+
+    await agent.stop()
+    restarted_ws = _inject_ws(agent, FakeWs())
+    await agent.send_response_chunk("req-1", "resp-new", 0, 2000, "new session")
+
+    assert restarted_ws.json_messages[0]["responseId"] == "resp-new"
 
 
 # -- REST integration tests (pytest-httpx) ----------------------------------

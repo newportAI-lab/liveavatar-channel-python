@@ -28,6 +28,10 @@ class _ResponseLifecycle:
         self._lock = asyncio.Lock()
         self._active: dict[str, _ActiveResponse] = {}
 
+    async def reset(self) -> None:
+        async with self._lock:
+            self._active.clear()
+
     async def legacy_start(
         self,
         request_id: str,

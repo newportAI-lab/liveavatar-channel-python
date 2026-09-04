@@ -251,6 +251,8 @@ class AvatarAgent:
                 pass
             self._ws_client = None
 
+        await self._response_lifecycle.reset()
+
         if self._http_client is not None:
             await self._http_client.aclose()
             self._http_client = None
