@@ -367,6 +367,6 @@ class _ResponseLifecycle:
                 f"{operation} supplied response_id {supplied!r}; "
                 f"using active response_id {active.response_id!r}",
                 DeprecationWarning,
-                stacklevel=3,
+                stacklevel=4,
             )
         return active.response_id

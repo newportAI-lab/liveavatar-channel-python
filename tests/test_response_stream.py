@@ -13,6 +13,7 @@ from liveavatar_channel_sdk.avatar_agent import (
     AvatarAgentConfig,
 )
 from liveavatar_channel_sdk.event_type import EventType
+from liveavatar_channel_sdk.example import live_avatar_service_simulator as simulator
 from liveavatar_channel_sdk.example.live_avatar_service_simulator import EchoAgent
 from liveavatar_channel_sdk.response_stream import ResponseStreamStateError
 
@@ -107,6 +108,32 @@ class RecordingResponseStreamAgent:
         return stream
 
 
+class EchoResponseStream:
+    def __init__(self) -> None:
+        self.response_id = "stream-generated-id"
+        self.chunks = []
+        self.exited = False
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_value, traceback) -> None:
+        self.exited = True
+
+    async def send_chunk(self, text: str) -> None:
+        self.chunks.append(text)
+
+
+class EchoResponseStreamAgent:
+    def __init__(self) -> None:
+        self.response_stream_calls = []
+        self.stream = EchoResponseStream()
+
+    def response_stream(self, request_id: str, *, send_start: bool):
+        self.response_stream_calls.append((request_id, send_start))
+        return self.stream
+
+
 @pytest.fixture
 def agent() -> AvatarAgent:
     return AvatarAgent(
@@ -183,6 +210,28 @@ async def test_simulator_stale_task_callback_keeps_replacement_registered():
 
     second_release.set()
     await replacement
+
+
+@pytest.mark.asyncio
+async def test_simulator_echo_uses_response_stream_context_for_chunks(monkeypatch):
+    """Restoring manual IDs or terminal events to _echo breaks this fake stream."""
+    listener = EchoAgent()
+    fake_agent = EchoResponseStreamAgent()
+    listener.agent = fake_agent
+    sleep_delays = []
+
+    async def record_sleep(delay: float) -> None:
+        sleep_delays.append(delay)
+
+    monkeypatch.setattr(simulator.asyncio, "sleep", record_sleep)
+
+    await listener._echo("request-1", "hello world")
+
+    assert fake_agent.response_stream_calls == [("request-1", True)]
+    assert fake_agent.stream.chunks == ["hello ", "world "]
+    assert fake_agent.stream.exited
+    assert sleep_delays == [0.05, 0.05]
+    assert listener.response_done.is_set()
 
 
 def test_response_stream_types_are_exported():
@@ -517,6 +566,19 @@ async def test_legacy_chunks_and_done_reuse_first_response_id(agent: AvatarAgent
         EventType.RESPONSE_CHUNK,
         EventType.RESPONSE_DONE,
     ]
+
+
+@pytest.mark.asyncio
+async def test_legacy_response_id_warning_points_to_caller(agent: AvatarAgent):
+    """Changing warning stacklevel back to the SDK wrapper loses caller context."""
+    ws = RecordingWs()
+    agent._ws_client = ws
+    await agent.send_response_chunk("req-1", "resp-1", 0, 1000, "first")
+
+    with pytest.warns(DeprecationWarning, match="resp-2") as captured:
+        await agent.send_response_chunk("req-1", "resp-2", 1, 1001, "second")
+
+    assert Path(captured[0].filename).resolve() == Path(__file__).resolve()
 
 
 @pytest.mark.asyncio

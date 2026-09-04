@@ -384,7 +384,7 @@ Sent by the Developer Service **before** the first `response.chunk`. Use this to
 
 A signal for **explicit programmatic interruption**, initiated by the Developer Service in scenarios not triggered by any user input event (e.g., backend timeout, business-logic override).
 
-The Live Avatar Service automatically clears the RTC playback buffer whenever it receives a new user input event (`input.text` or `input.voice.start`). In those flows the developer only needs to cancel the internal LLM/TTS task — no explicit `control.interrupt` is required.
+The Live Avatar Service automatically clears the RTC playback buffer whenever it receives a new user input event (`input.text` or `input.voice.start`). In those flows the developer only needs to cancel the internal LLM/TTS task — no explicit `control.interrupt` is required. If that cancellation abandons an active response, it must still send `response.cancel`: `ResponseStream` sends it when an exception exits its context, while a legacy integration must call `send_response_cancel` with the exact active `response_id`.
 
 Providing `requestId` helps ensure that a specific, designated conversation is interrupted precisely, preventing erroneous interruptions caused by network instability. This field is optional.
 
@@ -420,25 +420,27 @@ sequenceDiagram
         Note right of AppServer: [Text Interrupt — developer side only]
         AppServer->>Task: 2. cancelCurrentResponse() (terminate old task)
     end
+    Task->>Avatar: 3. response.cancel (terminate abandoned response)
 
-    AppServer->>Task: 3. processTextInput (start new task)
-    Task-->>Avatar: 4. Push new reply text/audio
-    Avatar-->>User: 5. Render new reply
+    AppServer->>Task: 4. processTextInput (start new task)
+    Task-->>Avatar: 5. Push new reply text/audio
+    Avatar-->>User: 6. Render new reply
 
     Note over User, Avatar: Case 2: Avatar is speaking, user starts speaking (asrProvider=developer / Omni path)
-    Avatar->>AppServer: 6. Binary Frames (continuous raw audio forwarded by platform)
+    Avatar->>AppServer: 7. Binary Frames (continuous raw audio forwarded by platform)
 
-    AppServer->>AppServer: 7. asrService.detectVoiceActivity (speech boundary detected internally)
+    AppServer->>AppServer: 8. asrService.detectVoiceActivity (speech boundary detected internally)
 
     rect rgb(255, 240, 245)
         Note right of AppServer: [Voice Interrupt — developer side only]
-        AppServer->>Task: 8. cancelCurrentResponse() (cut off at the source)
+        AppServer->>Task: 9. cancelCurrentResponse() (cut off at the source)
     end
+    Task->>Avatar: 10. response.cancel (terminate abandoned response)
 
-    AppServer->>Avatar: 9. input.voice.start (speech boundary notification — platform auto-clears RTC buffer on receipt)
-    AppServer->>AppServer: 10. Continue ASR recognition (collecting input.asr.partial...)
-    AppServer->>Avatar: 11. input.voice.finish (user stopped speaking)
-    Note over User, Avatar: Repeat steps 3-5 for new reply flow
+    AppServer->>Avatar: 11. input.voice.start (speech boundary notification — platform auto-clears RTC buffer on receipt)
+    AppServer->>AppServer: 12. Continue ASR recognition (collecting input.asr.partial...)
+    AppServer->>Avatar: 13. input.voice.finish (user stopped speaking)
+    Note over User, Avatar: Repeat steps 4-6 for new reply flow
 ```
 
 ---

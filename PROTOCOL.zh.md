@@ -371,7 +371,7 @@ seq = session 内递增。所有 state 值（后续可能扩展）：
 
 开发者服务发起的**程序化主动打断**信号，适用于非用户输入事件触发的场景（如后端超时、业务逻辑强制打断等）。
 
-数字人服务在收到任何新的用户输入事件（`input.text` 或 `input.voice.start`）时，会**自动清空 RTC 播放缓冲区**。在这些正常输入流程中，开发者只需在内部取消当前 LLM/TTS 任务，无需额外发送 `control.interrupt`。
+数字人服务在收到任何新的用户输入事件（`input.text` 或 `input.voice.start`）时，会**自动清空 RTC 播放缓冲区**。在这些正常输入流程中，开发者只需在内部取消当前 LLM/TTS 任务，无需额外发送 `control.interrupt`。若该取消操作放弃了活动响应，仍必须发送 `response.cancel`：`ResponseStream` 在因异常退出上下文时会自动发送；旧版集成则必须使用精确的活动 `response_id` 调用 `send_response_cancel`。
 
 打断时传入 requestId 可以帮助精准打断指定的对话，避免因为网络抖动导致误打断，也可以不填。
 
@@ -407,25 +407,27 @@ sequenceDiagram
         Note right of AppServer: 【文字打断 — 仅开发者侧】
         AppServer->>Task: 2. cancelCurrentResponse() (终止旧任务)
     end
+    Task->>Avatar: 3. response.cancel（终结已放弃的响应）
 
-    AppServer->>Task: 3. processTextInput (开启新任务)
-    Task-->>Avatar: 4. 推送新回复文本/音频
-    Avatar-->>User: 5. 渲染新回复画面
+    AppServer->>Task: 4. processTextInput (开启新任务)
+    Task-->>Avatar: 5. 推送新回复文本/音频
+    Avatar-->>User: 6. 渲染新回复画面
 
     Note over User, Avatar: 场景 2：数字人正在说话，用户开口说话（asrProvider=developer / Omni 路径）
-    Avatar->>AppServer: 6. Binary Frame（平台持续转发原始音频）
+    Avatar->>AppServer: 7. Binary Frame（平台持续转发原始音频）
 
-    AppServer->>AppServer: 7. asrService.detectVoiceActivity（内部检测到语音边界）
+    AppServer->>AppServer: 8. asrService.detectVoiceActivity（内部检测到语音边界）
 
     rect rgb(255, 240, 245)
         Note right of AppServer: 【语音打断 — 仅开发者侧】
-        AppServer->>Task: 8. cancelCurrentResponse() (确保源头切断)
+        AppServer->>Task: 9. cancelCurrentResponse() (确保源头切断)
     end
+    Task->>Avatar: 10. response.cancel（终结已放弃的响应）
 
-    AppServer->>Avatar: 9. input.voice.start（语音边界通知 — 平台收到后自动清空 RTC 缓冲区）
-    AppServer->>AppServer: 10. 继续 ASR 识别（持续收集 input.asr.partial...）
-    AppServer->>Avatar: 11. input.voice.finish（用户停止说话）
-    Note over User, Avatar: 重复步骤 3-5 的新回复流程
+    AppServer->>Avatar: 11. input.voice.start（语音边界通知 — 平台收到后自动清空 RTC 缓冲区）
+    AppServer->>AppServer: 12. 继续 ASR 识别（持续收集 input.asr.partial...）
+    AppServer->>Avatar: 13. input.voice.finish（用户停止说话）
+    Note over User, Avatar: 重复步骤 4-6 的新回复流程
 ```
 
 ---
