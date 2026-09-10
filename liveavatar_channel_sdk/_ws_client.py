@@ -175,9 +175,7 @@ class _AvatarWsClient:
                 self._session_init_event.set()
 
             elif event_type == EventType.SESSION_STATE:
-                await self._callbacks.on_session_state(
-                    state=SessionState(data["state"])
-                )
+                await self._callbacks.on_session_state(state=SessionState(data["state"]))
 
             elif event_type == EventType.SCENE_RESOURCE_TRANSITION:
                 # Required resource IDs are the contract boundary for this event.
@@ -194,9 +192,7 @@ class _AvatarWsClient:
                     logger.warning("Malformed scene.resourceTransition payload")
 
             elif event_type == EventType.SESSION_CLOSING:
-                await self._callbacks.on_session_closing(
-                    reason=data.get("reason")
-                )
+                await self._callbacks.on_session_closing(reason=data.get("reason"))
 
             elif event_type == EventType.INPUT_TEXT:
                 await self._callbacks.on_text_input(
