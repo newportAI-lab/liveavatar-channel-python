@@ -16,6 +16,7 @@ from liveavatar_channel_sdk.event_type import EventType
 from liveavatar_channel_sdk.example import live_avatar_service_simulator as simulator
 from liveavatar_channel_sdk.example.live_avatar_service_simulator import EchoAgent
 from liveavatar_channel_sdk.response_stream import ResponseStreamStateError
+from liveavatar_channel_sdk.response_state import ResponseStateEvent
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
@@ -136,10 +137,12 @@ class EchoResponseStreamAgent:
 
 @pytest.fixture
 def agent() -> AvatarAgent:
-    return AvatarAgent(
+    instance = AvatarAgent(
         AvatarAgentConfig(api_key="sk-test", avatar_id="avatar-1"),
         AgentListener(),
     )
+    instance._session_id = "session-1"
+    return instance
 
 
 @pytest.mark.asyncio
@@ -254,13 +257,60 @@ def test_response_stream_factory_exposes_request_and_generated_response_ids(
 
 
 @pytest.mark.asyncio
+async def test_response_stream_defaults_to_explicit_start_and_waits_for_platform_terminal(
+    agent: AvatarAgent,
+):
+    ws = RecordingWs()
+    agent._ws_client = ws
+    response = agent.response_stream("req-1")
+
+    async with response:
+        await response.send_chunk("hello", timestamp=1000)
+
+    assert [message["event"] for message in ws.messages] == [
+        EventType.RESPONSE_START,
+        EventType.RESPONSE_CHUNK,
+        EventType.RESPONSE_DONE,
+    ]
+    waiter = asyncio.create_task(response.wait_finished())
+    await asyncio.sleep(0)
+    assert waiter.done() is False
+
+    terminal = ResponseStateEvent(
+        session_id="session-1",
+        request_id="req-1",
+        response_id=response.response_id,
+        seq=1,
+        timestamp=2000,
+        state="FINISHED",
+        reason="COMPLETED",
+    )
+    await agent._inbound_response_lifecycle.handle(terminal)
+    assert await waiter == terminal
+
+
+@pytest.mark.asyncio
+async def test_response_stream_explicit_no_start_preserves_compatibility(agent: AvatarAgent):
+    ws = RecordingWs()
+    agent._ws_client = ws
+
+    async with agent.response_stream("req-1", send_start=False) as response:
+        await response.send_chunk("hello", timestamp=1000)
+
+    assert [message["event"] for message in ws.messages] == [
+        EventType.RESPONSE_CHUNK,
+        EventType.RESPONSE_DONE,
+    ]
+
+
+@pytest.mark.asyncio
 async def test_response_stream_reuses_id_sequences_chunks_and_auto_dones(
     agent: AvatarAgent,
 ):
     ws = RecordingWs()
     agent._ws_client = ws
 
-    async with agent.response_stream("req-1") as response:
+    async with agent.response_stream("req-1", send_start=False) as response:
         response_id = response.response_id
         assert response.request_id == "req-1"
         await response.send_chunk("first", timestamp=1000)
@@ -313,7 +363,7 @@ async def test_response_stream_generates_epoch_millisecond_timestamp(
         lambda: 1_725_000_123_456_789_000,
     )
 
-    async with agent.response_stream("req-1") as response:
+    async with agent.response_stream("req-1", send_start=False) as response:
         await response.send_chunk("hello")
 
     assert ws.messages[0]["timestamp"] == 1_725_000_123_456
@@ -324,7 +374,7 @@ async def test_response_stream_explicit_done_is_not_repeated_on_exit(agent: Avat
     ws = RecordingWs()
     agent._ws_client = ws
 
-    async with agent.response_stream("req-1") as response:
+    async with agent.response_stream("req-1", send_start=False) as response:
         await response.send_chunk("hello", timestamp=1000)
         await response.done({"reason": "complete"})
 
@@ -340,7 +390,7 @@ async def test_response_stream_cancel_is_not_followed_by_done_on_exit(agent: Ava
     ws = RecordingWs()
     agent._ws_client = ws
 
-    async with agent.response_stream("req-1") as response:
+    async with agent.response_stream("req-1", send_start=False) as response:
         await response.cancel()
 
     assert [message["event"] for message in ws.messages] == [EventType.RESPONSE_CANCEL]
@@ -356,7 +406,7 @@ async def test_response_stream_exception_cancels_and_preserves_original_exceptio
     original = ValueError("application failure")
 
     with pytest.raises(ValueError) as error:
-        async with agent.response_stream("req-1"):
+        async with agent.response_stream("req-1", send_start=False):
             raise original
 
     assert error.value is original
@@ -371,7 +421,7 @@ async def test_response_stream_cancel_failure_preserves_and_notes_original_excep
     ws = FailingWs(fail_on=1)
     agent._ws_client = ws
     original = ValueError("application failure")
-    response = agent.response_stream("req-1")
+    response = agent.response_stream("req-1", send_start=False)
 
     with pytest.raises(ValueError) as error:
         async with response:
@@ -444,8 +494,8 @@ async def test_response_stream_owner_blocks_other_stream_and_legacy_operations(
     ws = RecordingWs()
     agent._ws_client = ws
 
-    async with agent.response_stream("req-1") as response:
-        other = agent.response_stream("req-1")
+    async with agent.response_stream("req-1", send_start=False) as response:
+        other = agent.response_stream("req-1", send_start=False)
         with pytest.raises(ResponseStreamStateError):
             await other.__aenter__()
         with pytest.raises(ResponseStreamStateError):
@@ -467,7 +517,7 @@ async def test_response_stream_cannot_claim_legacy_owned_request(agent: AvatarAg
     ws = RecordingWs()
     agent._ws_client = ws
     await agent.send_response_start("req-1", "legacy-response")
-    response = agent.response_stream("req-1")
+    response = agent.response_stream("req-1", send_start=False)
 
     with pytest.raises(ResponseStreamStateError):
         await response.__aenter__()
@@ -486,8 +536,8 @@ async def test_concurrent_response_stream_enters_for_same_request_have_one_winne
     ws = RecordingWs()
     agent._ws_client = ws
     gate = asyncio.Event()
-    first = agent.response_stream("req-1")
-    second = agent.response_stream("req-1")
+    first = agent.response_stream("req-1", send_start=False)
+    second = agent.response_stream("req-1", send_start=False)
 
     async def enter(response):
         await gate.wait()
@@ -512,7 +562,7 @@ async def test_legacy_and_response_stream_for_different_requests_complete_indepe
     agent._ws_client = ws
     await agent.send_response_chunk("legacy-request", "legacy-response", 0, 1000, "one")
 
-    async with agent.response_stream("stream-request") as response:
+    async with agent.response_stream("stream-request", send_start=False) as response:
         await response.send_chunk("two", timestamp=1001)
         await agent.send_response_done("legacy-request", "legacy-response")
 
@@ -532,7 +582,7 @@ async def test_response_stream_failed_terminal_send_keeps_stream_open_for_retry(
 ):
     ws = FailingWs(fail_on=1)
     agent._ws_client = ws
-    response = agent.response_stream("req-1")
+    response = agent.response_stream("req-1", send_start=False)
     await response.__aenter__()
 
     with pytest.raises(OSError, match="selected send failure"):

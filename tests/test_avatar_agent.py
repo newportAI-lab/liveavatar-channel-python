@@ -65,7 +65,9 @@ class ResourceTransitionListener(AgentListener):
 def agent() -> AvatarAgent:
     config = AvatarAgentConfig(api_key="sk-test", avatar_id="avatar-1")
     listener = AgentListener()
-    return AvatarAgent(config, listener)
+    instance = AvatarAgent(config, listener)
+    instance._session_id = "session-1"
+    return instance
 
 
 def _inject_ws(a: AvatarAgent, ws: FakeWs) -> FakeWs:

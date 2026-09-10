@@ -320,7 +320,7 @@ class AvatarAgent:
         volume: float = 1.0,
         mood: str | None = None,
         metadata: dict | None = None,
-        send_start: bool = False,
+        send_start: bool = True,
     ) -> ResponseStream:
         response_id = str(uuid.uuid4())
         start_message = None
@@ -335,6 +335,8 @@ class AvatarAgent:
             )
         return ResponseStream(
             self._response_lifecycle,
+            self._inbound_response_lifecycle,
+            lambda: self._session_id,
             request_id,
             response_id,
             start_message=start_message,
@@ -350,14 +352,23 @@ class AvatarAgent:
         mood: str | None = None,
         metadata: dict | None = None,
     ) -> None:
-        await self._response_lifecycle.legacy_start(
-            request_id,
-            response_id,
-            speed,
-            volume,
-            mood,
-            metadata,
+        if self._session_id is None:
+            raise RuntimeError("Not connected — call start() first")
+        pending = await self._inbound_response_lifecycle.register(
+            self._session_id, request_id, response_id
         )
+        try:
+            await self._response_lifecycle.legacy_start(
+                request_id,
+                response_id,
+                speed,
+                volume,
+                mood,
+                metadata,
+            )
+        except BaseException:
+            await self._inbound_response_lifecycle.rollback(pending)
+            raise
 
     async def send_response_chunk(
         self,

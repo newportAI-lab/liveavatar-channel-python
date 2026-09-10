@@ -10,6 +10,11 @@ from dataclasses import dataclass
 from typing import Awaitable, Callable
 
 from liveavatar_channel_sdk.message_builder import MessageBuilder
+from liveavatar_channel_sdk.response_lifecycle import (
+    _PendingResponse,
+    _ResponseLifecycleCoordinator,
+)
+from liveavatar_channel_sdk.response_state import ResponseStateEvent
 
 logger = logging.getLogger(__name__)
 
@@ -24,17 +29,22 @@ class ResponseStream:
     def __init__(
         self,
         lifecycle: _ResponseLifecycle,
+        inbound_lifecycle: _ResponseLifecycleCoordinator,
+        session_id: Callable[[], str | None],
         request_id: str,
         response_id: str,
         *,
         start_message: dict | None,
     ) -> None:
         self._lifecycle = lifecycle
+        self._inbound_lifecycle = inbound_lifecycle
+        self._session_id = session_id
         self._request_id = request_id
         self._response_id = response_id
         self._start_message = start_message
         self._entered = False
         self._terminal = False
+        self._pending: _PendingResponse | None = None
 
     @property
     def request_id(self) -> str:
@@ -47,12 +57,24 @@ class ResponseStream:
     async def __aenter__(self) -> ResponseStream:
         if self._entered:
             raise ResponseStreamStateError("response stream cannot be entered twice")
-        await self._lifecycle.claim(
-            self,
-            self._request_id,
-            self._response_id,
-            self._start_message,
+        session_id = self._session_id()
+        if session_id is None:
+            raise RuntimeError("Not connected — call start() first")
+        pending = await self._inbound_lifecycle.register(
+            session_id, self._request_id, self._response_id
         )
+        self._pending = pending
+        try:
+            await self._lifecycle.claim(
+                self,
+                self._request_id,
+                self._response_id,
+                self._start_message,
+            )
+        except BaseException:
+            self._pending = None
+            await self._inbound_lifecycle.rollback(pending)
+            raise
         self._entered = True
         return self
 
@@ -93,6 +115,13 @@ class ResponseStream:
         self._require_open("cancel")
         await self._lifecycle.stream_cancel(self)
         self._terminal = True
+
+    async def wait_finished(self) -> ResponseStateEvent:
+        if self._pending is None:
+            raise ResponseStreamStateError(
+                "cannot wait for completion: response stream has not been entered"
+            )
+        return await self._pending.wait_finished()
 
     def _require_open(self, operation: str) -> None:
         if not self._entered:
