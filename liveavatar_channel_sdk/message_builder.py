@@ -23,6 +23,11 @@ def _data_with_metadata(data: Optional[dict] = None, metadata: Optional[dict] = 
     return result
 
 
+def _require_non_blank_id(name: str, value: str) -> None:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{name} must be non-empty")
+
+
 class MessageBuilder:
     """Factory for constructing all protocol JSON messages."""
 
@@ -241,6 +246,50 @@ class MessageBuilder:
         return {
             "event": EventType.SYSTEM_PROMPT,
             "data": _data_with_metadata({"text": text}, metadata),
+        }
+
+    @staticmethod
+    def system_prompt_start(request_id: str, response_id: str) -> dict:
+        """system.prompt.start: Establish a streaming prompt response."""
+        _require_non_blank_id("request_id", request_id)
+        _require_non_blank_id("response_id", response_id)
+        return {
+            "event": EventType.SYSTEM_PROMPT_START,
+            "requestId": request_id,
+            "responseId": response_id,
+        }
+
+    @staticmethod
+    def system_prompt_chunk(
+        request_id: str,
+        response_id: str,
+        seq: int,
+        timestamp: int,
+        text: str,
+    ) -> dict:
+        """system.prompt.chunk: Send the next streaming prompt text fragment."""
+        _require_non_blank_id("request_id", request_id)
+        _require_non_blank_id("response_id", response_id)
+        if isinstance(seq, bool) or not isinstance(seq, int) or seq < 1:
+            raise ValueError("seq must be an integer greater than or equal to 1")
+        return {
+            "event": EventType.SYSTEM_PROMPT_CHUNK,
+            "requestId": request_id,
+            "responseId": response_id,
+            "seq": seq,
+            "timestamp": timestamp,
+            "data": {"text": text},
+        }
+
+    @staticmethod
+    def system_prompt_done(request_id: str, response_id: str) -> dict:
+        """system.prompt.done: Mark streaming prompt text production complete."""
+        _require_non_blank_id("request_id", request_id)
+        _require_non_blank_id("response_id", response_id)
+        return {
+            "event": EventType.SYSTEM_PROMPT_DONE,
+            "requestId": request_id,
+            "responseId": response_id,
         }
 
     @staticmethod

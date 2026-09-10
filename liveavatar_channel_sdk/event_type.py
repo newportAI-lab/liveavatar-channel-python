@@ -31,6 +31,7 @@ class EventType(str, Enum):
     RESPONSE_AUDIO_PROMPT_START = "response.audio.promptStart"
     RESPONSE_AUDIO_PROMPT_FINISH = "response.audio.promptFinish"
     RESPONSE_CANCEL = "response.cancel"
+    RESPONSE_STATE = "response.state"
 
     # Control events
     CONTROL_INTERRUPT = "control.interrupt"
@@ -38,6 +39,9 @@ class EventType(str, Enum):
     # System events
     SYSTEM_IDLE_TRIGGER = "system.idleTrigger"
     SYSTEM_PROMPT = "system.prompt"
+    SYSTEM_PROMPT_START = "system.prompt.start"
+    SYSTEM_PROMPT_CHUNK = "system.prompt.chunk"
+    SYSTEM_PROMPT_DONE = "system.prompt.done"
 
     # Error events
     ERROR = "error"

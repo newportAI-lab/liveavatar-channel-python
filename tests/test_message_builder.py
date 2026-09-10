@@ -2,6 +2,8 @@
 
 import json
 
+import pytest
+
 from liveavatar_channel_sdk.audio_frame import AudioFrame
 from liveavatar_channel_sdk.audio_frame_builder import AudioFrameBuilder
 from liveavatar_channel_sdk.event_type import EventType
@@ -370,6 +372,38 @@ class TestMessageBuilderSystem:
         except ValueError:
             return
         raise AssertionError("metadata override should raise ValueError")
+
+    def test_system_prompt_stream_messages(self):
+        assert MessageBuilder.system_prompt_start("req-1", "prompt-1") == {
+            "event": EventType.SYSTEM_PROMPT_START,
+            "requestId": "req-1",
+            "responseId": "prompt-1",
+        }
+        assert MessageBuilder.system_prompt_chunk(
+            "req-1", "prompt-1", 1, 1788960000000, "hello"
+        ) == {
+            "event": EventType.SYSTEM_PROMPT_CHUNK,
+            "requestId": "req-1",
+            "responseId": "prompt-1",
+            "seq": 1,
+            "timestamp": 1788960000000,
+            "data": {"text": "hello"},
+        }
+        assert MessageBuilder.system_prompt_done("req-1", "prompt-1") == {
+            "event": EventType.SYSTEM_PROMPT_DONE,
+            "requestId": "req-1",
+            "responseId": "prompt-1",
+        }
+
+    @pytest.mark.parametrize("request_id,response_id", [("", "resp"), ("req", "  ")])
+    def test_system_prompt_stream_rejects_blank_ids(self, request_id, response_id):
+        with pytest.raises(ValueError, match="must be non-empty"):
+            MessageBuilder.system_prompt_start(request_id, response_id)
+
+    @pytest.mark.parametrize("seq", [0, -1, True])
+    def test_system_prompt_chunk_rejects_invalid_sequence(self, seq):
+        with pytest.raises(ValueError, match="seq"):
+            MessageBuilder.system_prompt_chunk("req", "resp", seq, 1, "hello")
 
 
 class TestMessageBuilderError:
