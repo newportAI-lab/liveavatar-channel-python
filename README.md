@@ -4,7 +4,7 @@
 
 A Python SDK for the Live Avatar WebSocket protocol. Connect your AI backend to a live avatar service with text, audio, and image communication.
 
-**Version 0.3.0** — simplified Agent API with a minimal set of public types.
+**Version 0.4.0** — response lifecycle tracking and streaming system prompts.
 
 ## Installation
 
@@ -40,18 +40,26 @@ The SDK's core public types:
 | `AgentListener` | Callback interface -- override the events you care about (all methods are no-ops by default) |
 | `AvatarAgentConfig` | Configuration dataclass -- `api_key`, `avatar_id`, `base_url`, `sandbox`, `timeout`, `developer_tts`, `developer_asr`, `voice_id`, `voice_config`, `reconnect` |
 
-Additional types: `ResponseStream`, `ResponseStreamStateError`, `AudioFrame`, `AudioFrameBuilder`, `ImageFrame`, `ImageFrameBuilder`, `ResourceTransitionData`, `SessionState`, `EventType`, `SessionStartResult`, `ErrorCode`, and more are also available from the top-level package.
+Additional types include `ResponseStream`, `PromptStream`,
+`ResponseStateEvent`, their state errors, binary frame types, and session models.
 
 ### 1. Implement a listener
 
 ```python
-from liveavatar_channel_sdk import AgentListener
+from liveavatar_channel_sdk import AgentListener, ResponseStateEvent
 
 class MyAgent(AgentListener):
     async def on_text_input(self, text: str, request_id: str) -> None:
         async with self.agent.response_stream(request_id) as response:
             async for token in my_ai.stream(text):
                 await response.send_chunk(token)
+
+            terminal = await response.wait_finished()
+            if terminal.state == "FINISHED" and terminal.reason == "COMPLETED":
+                advance_business_workflow(request_id)
+
+    async def on_response_state(self, event: ResponseStateEvent) -> None:
+        print(event.response_id, event.state, event.reason)
 
     async def on_session_init(self, session_id: str, user_id: str) -> None:
         print(f"Session opened: {session_id}  user: {user_id}")
@@ -116,6 +124,39 @@ caller can migrate safely. A wrong `request_id` is never rewritten: it raises
 `send_response_cancel(response_id)` signature has no `request_id`; it cancels
 only when that response ID has exactly one active legacy response. Zero or
 multiple matches raise `ResponseStreamStateError`.
+
+By default, `response_stream()` registers the generated response identity before
+sending `response.start`. Set `send_start=False` only when deliberately targeting
+an older dispatcher. `response.done` means that text production ended; it does
+not mean avatar playback finished. `wait_finished()` resolves only from the first
+matching platform `REJECTED` or `FINISHED` lifecycle event.
+
+### Streaming system prompts
+
+Use `prompt_stream()` when an idle or course prompt is produced incrementally:
+
+```python
+async with agent.prompt_stream("course-step-42") as prompt:
+    await prompt.send("Now let's look at the next question.")
+    await prompt.send("Take your time.")
+
+terminal = await prompt.wait_finished()
+if terminal.state == "FINISHED" and terminal.reason == "COMPLETED":
+    advance_course_once()
+```
+
+The SDK generates one `response_id`, sends `system.prompt.start`, numbers chunks
+from 1, and sends `system.prompt.done` on normal context exit. Chunks may be sent
+immediately; they do not wait for `ACCEPTED`. The older `send_prompt()` remains a
+one-shot compatibility API with unchanged behavior.
+
+Streaming prompts require a dispatcher that supports
+`system.prompt.start/chunk/done` and `response.state`.
+
+Do not use `session.state=IDLE`, `response.done`, `system.prompt.done`,
+`response.audio.finish`, a media-track end, or local task cancellation as proof
+that a response completed. Business progression requires the expected
+`response_id` with `state == "FINISHED"` and `reason == "COMPLETED"`.
 
 ## Build Binary Frames
 
@@ -232,6 +273,7 @@ Override these on `AgentListener`. All are `async` with default no-op implementa
 | `on_text_input(text, request_id)` | User text received (typing or platform ASR) | **Core** -- respond to user messages here |
 | `on_session_init(session_id, user_id)` | Handshake complete | Logging, metrics |
 | `on_session_state(state: SessionState)` | Session state changed | UI sync, debugging |
+| `on_response_state(event: ResponseStateEvent)` | Response lifecycle update | Completion, rejection, interruption, and failure handling |
 | `on_resource_transition(data: ResourceTransitionData)` | Renderer is about to switch video resources | Logging, analytics, business sync |
 | `on_session_closing(reason)` | Platform about to close connection | Graceful shutdown |
 | `on_idle_trigger(reason, idle_time_ms)` | Prolonged user inactivity | Send idle-wakeup prompt |

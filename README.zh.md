@@ -4,7 +4,7 @@
 
 用于 Live Avatar WebSocket 协议的 Python SDK。将你的 AI 后端连接到实时数字人服务，支持文本、音频和图像通信。
 
-**版本 0.3.0** — 简化的 Agent API，仅少量公开类型。
+**版本 0.4.0** — 支持精确响应生命周期和流式系统提示词。
 
 ## 安装
 
@@ -40,18 +40,26 @@ SDK 的核心公开类型：
 | `AgentListener` | 回调接口 —— 覆盖你关心的事件（所有方法默认空实现） |
 | `AvatarAgentConfig` | 配置数据类 —— `api_key`、`avatar_id`、`base_url`、`sandbox`、`timeout`、`developer_tts`、`developer_asr`、`voice_id`、`voice_config`、`reconnect` |
 
-其他类型：`ResponseStream`、`ResponseStreamStateError`、`AudioFrame`、`AudioFrameBuilder`、`ImageFrame`、`ImageFrameBuilder`、`ResourceTransitionData`、`SessionState`、`EventType`、`SessionStartResult`、`ErrorCode` 等也可从顶层包直接导入。
+其他公开类型包括 `ResponseStream`、`PromptStream`、`ResponseStateEvent`、
+对应的状态错误、二进制帧类型和会话模型。
 
 ### 1. 实现监听器
 
 ```python
-from liveavatar_channel_sdk import AgentListener
+from liveavatar_channel_sdk import AgentListener, ResponseStateEvent
 
 class MyAgent(AgentListener):
     async def on_text_input(self, text: str, request_id: str) -> None:
         async with self.agent.response_stream(request_id) as response:
             async for token in my_ai.stream(text):
                 await response.send_chunk(token)
+
+            terminal = await response.wait_finished()
+            if terminal.state == "FINISHED" and terminal.reason == "COMPLETED":
+                advance_business_workflow(request_id)
+
+    async def on_response_state(self, event: ResponseStateEvent) -> None:
+        print(event.response_id, event.state, event.reason)
 
     async def on_session_init(self, session_id: str, user_id: str) -> None:
         print(f"会话已建立：{session_id}  用户：{user_id}")
@@ -112,6 +120,37 @@ await agent.send_response_done(request_id, response_id)
 绝不会被重写：SDK 会在发送前抛出 `ResponseStreamStateError`。保留的
 `send_response_cancel(response_id)` 签名没有 `request_id`；它仅在该 response ID
 对应恰好一个活动的旧响应时取消。零个或多个匹配都会抛出 `ResponseStreamStateError`。
+
+默认情况下，`response_stream()` 会先注册生成的响应标识，再发送
+`response.start`。只有明确兼容旧 dispatcher 时才应设置 `send_start=False`。
+`response.done` 仅表示文本生产结束，不表示数字人播报完成；
+`wait_finished()` 只会被平台首个匹配的 `REJECTED` 或 `FINISHED` 事件完成。
+
+### 流式系统提示词
+
+空闲提示或课程提示由多个文本片段产生时，使用 `prompt_stream()`：
+
+```python
+async with agent.prompt_stream("course-step-42") as prompt:
+    await prompt.send("现在我们来看下一题。")
+    await prompt.send("请慢慢思考。")
+
+terminal = await prompt.wait_finished()
+if terminal.state == "FINISHED" and terminal.reason == "COMPLETED":
+    advance_course_once()
+```
+
+SDK 会生成一个 `response_id`，发送 `system.prompt.start`，从 1 开始为 chunk
+编号，并在上下文正常退出时发送 `system.prompt.done`。chunk 无需等待
+`ACCEPTED` 即可连续发送。原有 `send_prompt()` 仍是行为不变的一次性兼容 API。
+
+流式提示要求 dispatcher 支持 `system.prompt.start/chunk/done` 和
+`response.state`。
+
+不要把 `session.state=IDLE`、`response.done`、`system.prompt.done`、
+`response.audio.finish`、媒体 track 结束或本地任务取消当作 response 完成。
+业务推进必须同时匹配预期 `response_id`、`state == "FINISHED"` 和
+`reason == "COMPLETED"`。
 
 ## 构建二进制帧
 
@@ -221,6 +260,7 @@ packed = frame.pack()   # bytes（9 字节头部 + 负载）
 | `on_text_input(text, request_id)` | 收到用户文本（输入或平台 ASR 结果） | **核心** —— 在这里回复用户消息 |
 | `on_session_init(session_id, user_id)` | 握手完成 | 日志、监控 |
 | `on_session_state(state: SessionState)` | 会话状态改变 | UI 同步、调试 |
+| `on_response_state(event: ResponseStateEvent)` | Response 生命周期变化 | 处理完成、拒绝、打断和失败 |
 | `on_resource_transition(data: ResourceTransitionData)` | renderer 即将切换视频资源 | 日志、分析、业务同步 |
 | `on_session_closing(reason)` | 平台即将关闭连接 | 优雅关闭 |
 | `on_idle_trigger(reason, idle_time_ms)` | 用户长时间不活跃 | 发送空闲唤醒提示 |

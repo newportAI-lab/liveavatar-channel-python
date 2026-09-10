@@ -746,6 +746,49 @@ Whether the audio data is sent from the Live Avatar Service to a developer, or f
 
 ---
 
+# Response Lifecycle and Streaming System Prompts
+
+`session.state` describes the whole session and MUST NOT be used to decide that a
+specific response completed. The platform publishes response-specific lifecycle
+events:
+
+```json
+{
+  "event": "response.state",
+  "sessionId": "session-123",
+  "requestId": "course-step-42",
+  "responseId": "prompt-uuid",
+  "seq": 128,
+  "timestamp": 1788960000000,
+  "data": {"state": "FINISHED", "reason": "COMPLETED"}
+}
+```
+
+States are `ACCEPTED`, `REJECTED`, and `FINISHED`. Current reasons are
+`COMPLETED`, `USER_COMMAND_INTERRUPT`, `DEVELOPER_COMMAND_INTERRUPT`, `FAILED`,
+`RENDERER_FAILED`, `STATE_TRANSITION_FAILED`, `INTERNAL_ERROR`, `SESSION_CLOSED`,
+`INVALID_REQUEST`, `SESSION_BUSY`, `RESPONSE_ID_CONFLICT`,
+`REQUEST_ID_CONFLICT`, `SEQUENCE_CONFLICT`, `SEQUENCE_GAP`, and
+`STREAM_ALREADY_DONE`. Receivers must tolerate future values. The first
+`REJECTED` or `FINISHED` is terminal and cannot be overwritten. Use
+`sessionId + seq` for online deduplication; sequence gaps are valid.
+
+A streaming system prompt uses one stable identity:
+
+```json
+{"event":"system.prompt.start","requestId":"course-step-42","responseId":"prompt-uuid"}
+{"event":"system.prompt.chunk","requestId":"course-step-42","responseId":"prompt-uuid","seq":1,"timestamp":1788960000000,"data":{"text":"Next question."}}
+{"event":"system.prompt.done","requestId":"course-step-42","responseId":"prompt-uuid"}
+```
+
+Both IDs are required and non-empty. Chunk sequences start at 1 and increase for
+that response. `system.prompt.done` only closes text production. Business
+progression requires the expected `responseId` plus `FINISHED/COMPLETED`;
+`session.state=IDLE`, any `done`, audio finish, track EOS, or local cancellation
+does not prove playback completion.
+
+---
+
 # Image Protocol Design (WebSocket Channel Only)
 
 Image data is transmitted as binary data; each image packet is encapsulated within the following data structure (this applies exclusively to scenarios involving multimodal image stream input).
