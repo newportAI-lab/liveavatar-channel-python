@@ -140,7 +140,9 @@ async def test_concurrent_prompt_sends_get_unique_monotonic_sequences():
     async with stream:
         await asyncio.gather(*(stream.send(str(index), timestamp=index) for index in range(20)))
 
-    chunks = [message for message in ws.messages if message["event"] == EventType.SYSTEM_PROMPT_CHUNK]
+    chunks = [
+        message for message in ws.messages if message["event"] == EventType.SYSTEM_PROMPT_CHUNK
+    ]
     assert [message["seq"] for message in chunks] == list(range(1, 21))
 
 
@@ -160,6 +162,20 @@ async def test_prompt_stream_rejects_invalid_local_state():
     with pytest.raises(PromptStreamStateError, match="entered twice"):
         async with stream:
             pass
+
+
+@pytest.mark.asyncio
+async def test_explicit_prompt_done_is_not_repeated_by_context_exit():
+    ws = RecordingWs()
+    agent = make_agent(ws)
+
+    async with agent.prompt_stream("request-1", response_id="prompt-1") as stream:
+        await stream.done()
+
+    assert [message["event"] for message in ws.messages] == [
+        EventType.SYSTEM_PROMPT_START,
+        EventType.SYSTEM_PROMPT_DONE,
+    ]
 
 
 @pytest.mark.asyncio

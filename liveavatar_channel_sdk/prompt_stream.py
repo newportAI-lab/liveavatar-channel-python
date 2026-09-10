@@ -75,7 +75,12 @@ class PromptStream:
 
     async def __aexit__(self, exc_type, exc, traceback) -> bool:
         if exc is None:
-            await self.done()
+            async with self._lock:
+                if not self._closed:
+                    await self._send_json(
+                        MessageBuilder.system_prompt_done(self._request_id, self._response_id)
+                    )
+                    self._closed = True
         else:
             async with self._lock:
                 self._closed = True
@@ -113,8 +118,6 @@ class PromptStream:
 
     def _require_open(self, operation: str) -> None:
         if not self._entered:
-            raise PromptStreamStateError(
-                f"cannot {operation}: prompt stream has not been entered"
-            )
+            raise PromptStreamStateError(f"cannot {operation}: prompt stream has not been entered")
         if self._closed:
             raise PromptStreamStateError(f"cannot {operation}: prompt stream is closed")
