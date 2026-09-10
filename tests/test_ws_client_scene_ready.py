@@ -179,3 +179,56 @@ async def test_text_input_callback_does_not_block_lifecycle_ingestion():
 
     callbacks.release_input.set()
     await client.disconnect()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "raw",
+    [
+        '{"event":"system.idleTrigger","data":{"reason":"idle","idleTimeMs":1000}}',
+        '{"event":"scene.ready"}',
+    ],
+)
+async def test_prompt_producing_callbacks_do_not_block_lifecycle_ingestion(raw):
+    class BlockingCallbacks(FakeCallbacks):
+        def __init__(self):
+            super().__init__()
+            self.started = asyncio.Event()
+            self.release = asyncio.Event()
+
+        async def on_idle_trigger(self, reason, idle_time_ms):
+            self.started.set()
+            await self.release.wait()
+
+        async def on_scene_ready(self):
+            self.started.set()
+            await self.release.wait()
+
+    callbacks = BlockingCallbacks()
+    client = _AvatarWsClient("ws://example.invalid", callbacks, asyncio.Event())
+    dispatch = asyncio.create_task(client._handle_text(raw))
+    await callbacks.started.wait()
+    await asyncio.sleep(0)
+
+    assert dispatch.done() is True
+
+    callbacks.release.set()
+    await client.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_background_callback_can_disconnect_its_own_client():
+    stopped = asyncio.Event()
+
+    class StoppingCallbacks(FakeCallbacks):
+        async def on_text_input(self, text, request_id):
+            await client.disconnect()
+            stopped.set()
+
+    client = _AvatarWsClient("ws://example.invalid", StoppingCallbacks(), asyncio.Event())
+
+    await client._handle_text(
+        '{"event":"input.text","requestId":"request-1","data":{"text":"stop"}}'
+    )
+
+    await asyncio.wait_for(stopped.wait(), timeout=0.1)

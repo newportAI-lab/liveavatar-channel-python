@@ -100,7 +100,8 @@ class _AvatarWsClient:
                 await self._recv_task
             except asyncio.CancelledError:
                 pass
-        callback_tasks = list(self._callback_tasks)
+        current_task = asyncio.current_task()
+        callback_tasks = [task for task in self._callback_tasks if task is not current_task]
         for task in callback_tasks:
             task.cancel()
         if callback_tasks:
@@ -210,10 +211,13 @@ class _AvatarWsClient:
                 await asyncio.sleep(0)
 
             elif event_type == EventType.SYSTEM_IDLE_TRIGGER:
-                await self._callbacks.on_idle_trigger(
-                    reason=data["reason"],
-                    idle_time_ms=data["idleTimeMs"],
+                self._schedule_callback(
+                    self._callbacks.on_idle_trigger(
+                        reason=data["reason"],
+                        idle_time_ms=data["idleTimeMs"],
+                    )
                 )
+                await asyncio.sleep(0)
 
             elif event_type == EventType.ERROR:
                 await self._callbacks.on_error(
@@ -222,7 +226,8 @@ class _AvatarWsClient:
                 )
 
             elif event_type == EventType.SCENE_READY:
-                await self._callbacks.on_scene_ready()
+                self._schedule_callback(self._callbacks.on_scene_ready())
+                await asyncio.sleep(0)
 
             elif event_type == EventType.RESPONSE_STATE:
                 await self._callbacks.on_response_state(

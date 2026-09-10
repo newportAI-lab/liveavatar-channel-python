@@ -245,21 +245,30 @@ class AvatarAgent:
                 timeout=self._config.timeout,
             )
         except asyncio.TimeoutError:
-            await self._ws_client.disconnect()
-            self._ws_client = None
-            self._session_id = None
-            await self._http_client.aclose()
-            self._http_client = None
+            await self._cleanup_failed_start()
             raise RuntimeError(f"Timed out waiting for session.init after {self._config.timeout}s")
         except BaseException:
-            await self._ws_client.disconnect()
-            self._ws_client = None
-            self._session_id = None
-            await self._http_client.aclose()
-            self._http_client = None
+            await self._cleanup_failed_start()
             raise
 
         return result
+
+    async def _cleanup_failed_start(self) -> None:
+        ws_client = self._ws_client
+        http_client = self._http_client
+        self._ws_client = None
+        self._http_client = None
+        self._session_id = None
+        if ws_client is not None:
+            try:
+                await ws_client.disconnect()
+            except Exception as exc:
+                logger.warning("Error disconnecting after failed start: %s", exc)
+        if http_client is not None:
+            try:
+                await http_client.aclose()
+            except Exception as exc:
+                logger.warning("Error closing HTTP client after failed start: %s", exc)
 
     async def stop(self) -> None:
         """Idempotent stop: send ``session.stop`` over WS, then disconnect."""

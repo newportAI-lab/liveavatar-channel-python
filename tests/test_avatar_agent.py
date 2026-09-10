@@ -599,6 +599,41 @@ async def test_session_id_is_available_inside_session_init_callback(monkeypatch)
 
 
 @pytest.mark.asyncio
+async def test_start_clears_state_and_preserves_connect_error_when_disconnect_fails(monkeypatch):
+    class FailingClient:
+        def __init__(self, url, callbacks, session_init_event):
+            pass
+
+        async def connect(self, *, reconnect=False):
+            raise OSError("connect failed")
+
+        async def disconnect(self):
+            raise RuntimeError("disconnect failed")
+
+    agent = AvatarAgent(AvatarAgentConfig("key", "avatar"), AgentListener())
+
+    async def fake_rest_start():
+        from liveavatar_channel_sdk.session_models import SessionStartResult
+
+        return SessionStartResult(
+            session_id="sess-123",
+            sfu_url="wss://sfu.example",
+            user_token="token",
+            agent_ws_url="wss://agent.example",
+        )
+
+    monkeypatch.setattr(agent, "_rest_start", fake_rest_start)
+    monkeypatch.setattr("liveavatar_channel_sdk.avatar_agent._AvatarWsClient", FailingClient)
+
+    with pytest.raises(OSError, match="connect failed"):
+        await agent.start()
+
+    assert agent.session_id is None
+    assert agent._ws_client is None
+    assert agent._http_client is None
+
+
+@pytest.mark.asyncio
 async def test_rest_start_sends_websocket_agent_mode(agent_with_config: AvatarAgent, httpx_mock):
     body_capture = {}
 
