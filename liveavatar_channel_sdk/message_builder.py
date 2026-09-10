@@ -272,6 +272,8 @@ class MessageBuilder:
         _require_non_blank_id("response_id", response_id)
         if isinstance(seq, bool) or not isinstance(seq, int) or seq < 1:
             raise ValueError("seq must be an integer greater than or equal to 1")
+        if isinstance(timestamp, bool) or not isinstance(timestamp, int):
+            raise ValueError("timestamp must be an integer")
         return {
             "event": EventType.SYSTEM_PROMPT_CHUNK,
             "requestId": request_id,

@@ -80,6 +80,19 @@ async def test_reset_cancels_pending_wait_without_platform_terminal():
 
 
 @pytest.mark.asyncio
+async def test_start_send_rollback_reports_transport_error_to_existing_waiter():
+    coordinator = _ResponseLifecycleCoordinator()
+    pending = await coordinator.register("session-1", "request-1", "response-1")
+    waiter = asyncio.create_task(pending.wait_finished())
+    await asyncio.sleep(0)
+
+    await coordinator.rollback(pending, OSError("start failed"))
+
+    with pytest.raises(OSError, match="start failed"):
+        await waiter
+
+
+@pytest.mark.asyncio
 async def test_duplicate_response_identity_is_rejected():
     coordinator = _ResponseLifecycleCoordinator()
     await coordinator.register("session-1", "request-1", "response-1")

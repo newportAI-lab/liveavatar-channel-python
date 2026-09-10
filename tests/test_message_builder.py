@@ -405,6 +405,11 @@ class TestMessageBuilderSystem:
         with pytest.raises(ValueError, match="seq"):
             MessageBuilder.system_prompt_chunk("req", "resp", seq, 1, "hello")
 
+    @pytest.mark.parametrize("timestamp", [True, 1.5, "1"])
+    def test_system_prompt_chunk_rejects_invalid_timestamp(self, timestamp):
+        with pytest.raises(ValueError, match="timestamp"):
+            MessageBuilder.system_prompt_chunk("req", "resp", 1, timestamp, "hello")
+
 
 class TestMessageBuilderError:
     """Test error message builder."""

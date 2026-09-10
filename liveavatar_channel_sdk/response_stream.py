@@ -71,9 +71,9 @@ class ResponseStream:
                 self._response_id,
                 self._start_message,
             )
-        except BaseException:
+        except BaseException as error:
             self._pending = None
-            await self._inbound_lifecycle.rollback(pending)
+            await self._inbound_lifecycle.rollback(pending, error)
             raise
         self._entered = True
         return self

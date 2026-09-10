@@ -554,6 +554,51 @@ async def test_rest_start_success(agent_with_config: AvatarAgent, httpx_mock):
 
 
 @pytest.mark.asyncio
+async def test_session_id_is_available_inside_session_init_callback(monkeypatch):
+    observed_session_ids = []
+
+    class Listener(AgentListener):
+        async def on_session_init(self, session_id, user_id):
+            observed_session_ids.append(agent.session_id)
+
+    class FakeClient:
+        def __init__(self, url, callbacks, session_init_event):
+            self.callbacks = callbacks
+            self.session_init_event = session_init_event
+
+        async def connect(self, *, reconnect=False):
+            await self.callbacks.on_session_init("sess-123", "user-1")
+            self.session_init_event.set()
+
+        async def send_json(self, message):
+            pass
+
+        async def disconnect(self):
+            pass
+
+    agent = AvatarAgent(AvatarAgentConfig("key", "avatar"), Listener())
+
+    async def fake_rest_start():
+        from liveavatar_channel_sdk.session_models import SessionStartResult
+
+        return SessionStartResult(
+            session_id="sess-123",
+            sfu_url="wss://sfu.example",
+            user_token="token",
+            agent_ws_url="wss://agent.example",
+        )
+
+    monkeypatch.setattr(agent, "_rest_start", fake_rest_start)
+    monkeypatch.setattr("liveavatar_channel_sdk.avatar_agent._AvatarWsClient", FakeClient)
+
+    await agent.start()
+    try:
+        assert observed_session_ids == ["sess-123"]
+    finally:
+        await agent.stop()
+
+
+@pytest.mark.asyncio
 async def test_rest_start_sends_websocket_agent_mode(agent_with_config: AvatarAgent, httpx_mock):
     body_capture = {}
 

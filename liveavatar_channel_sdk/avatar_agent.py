@@ -226,15 +226,20 @@ class AvatarAgent:
             )
 
         # 3. Connect WebSocket
+        self._session_id = result.session_id
         self._ws_client = _AvatarWsClient(
             url=result.agent_ws_url,
-            callbacks=_ListenerBridge(self._listener, self._inbound_response_lifecycle),
+            callbacks=_ListenerBridge(
+                self._listener,
+                self._inbound_response_lifecycle,
+                expected_session_id=result.session_id,
+            ),
             session_init_event=self._session_init_event,
         )
-        await self._ws_client.connect(reconnect=self._config.reconnect)
-
-        # 4. Wait for session.init handshake
         try:
+            await self._ws_client.connect(reconnect=self._config.reconnect)
+
+            # 4. Wait for session.init handshake
             await asyncio.wait_for(
                 self._session_init_event.wait(),
                 timeout=self._config.timeout,
@@ -242,9 +247,18 @@ class AvatarAgent:
         except asyncio.TimeoutError:
             await self._ws_client.disconnect()
             self._ws_client = None
+            self._session_id = None
+            await self._http_client.aclose()
+            self._http_client = None
             raise RuntimeError(f"Timed out waiting for session.init after {self._config.timeout}s")
+        except BaseException:
+            await self._ws_client.disconnect()
+            self._ws_client = None
+            self._session_id = None
+            await self._http_client.aclose()
+            self._http_client = None
+            raise
 
-        self._session_id = result.session_id
         return result
 
     async def stop(self) -> None:
@@ -366,8 +380,8 @@ class AvatarAgent:
                 mood,
                 metadata,
             )
-        except BaseException:
-            await self._inbound_response_lifecycle.rollback(pending)
+        except BaseException as error:
+            await self._inbound_response_lifecycle.rollback(pending, error)
             raise
 
     async def send_response_chunk(
@@ -524,11 +538,19 @@ class _ListenerBridge:
         self,
         listener: AgentListener,
         response_lifecycle: _ResponseLifecycleCoordinator | None = None,
+        *,
+        expected_session_id: str | None = None,
     ) -> None:
         self._listener = listener
         self._response_lifecycle = response_lifecycle or _ResponseLifecycleCoordinator()
+        self._expected_session_id = expected_session_id
 
     async def on_session_init(self, session_id: str, user_id: str) -> None:
+        if self._expected_session_id is not None and session_id != self._expected_session_id:
+            raise ValueError(
+                f"session.init ID {session_id!r} does not match REST session "
+                f"{self._expected_session_id!r}"
+            )
         try:
             await self._listener.on_session_init(session_id, user_id)
         except Exception as exc:

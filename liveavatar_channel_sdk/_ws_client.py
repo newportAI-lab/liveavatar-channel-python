@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Optional, Protocol
+from typing import Awaitable, Optional, Protocol
 
 import websockets
 from websockets.exceptions import ConnectionClosed
@@ -70,6 +70,7 @@ class _AvatarWsClient:
         self._recv_task: Optional[asyncio.Task] = None
         self._running = False
         self._backoff: Optional[ExponentialBackoffStrategy] = None
+        self._callback_tasks: set[asyncio.Task] = set()
 
     async def send_json(self, message: dict) -> None:
         if self._ws is None:
@@ -99,6 +100,11 @@ class _AvatarWsClient:
                 await self._recv_task
             except asyncio.CancelledError:
                 pass
+        callback_tasks = list(self._callback_tasks)
+        for task in callback_tasks:
+            task.cancel()
+        if callback_tasks:
+            await asyncio.gather(*callback_tasks, return_exceptions=True)
         if self._ws is not None:
             await self._ws.close()
             self._ws = None
@@ -195,10 +201,13 @@ class _AvatarWsClient:
                 await self._callbacks.on_session_closing(reason=data.get("reason"))
 
             elif event_type == EventType.INPUT_TEXT:
-                await self._callbacks.on_text_input(
-                    text=data["text"],
-                    request_id=msg["requestId"],
+                self._schedule_callback(
+                    self._callbacks.on_text_input(
+                        text=data["text"],
+                        request_id=msg["requestId"],
+                    )
                 )
+                await asyncio.sleep(0)
 
             elif event_type == EventType.SYSTEM_IDLE_TRIGGER:
                 await self._callbacks.on_idle_trigger(
@@ -233,6 +242,19 @@ class _AvatarWsClient:
 
         except Exception as exc:
             logger.error("Error handling event %s: %s", event_type, exc)
+
+    def _schedule_callback(self, callback: Awaitable[None]) -> None:
+        task = asyncio.create_task(callback)
+        self._callback_tasks.add(task)
+        task.add_done_callback(self._callback_done)
+
+    def _callback_done(self, task: asyncio.Task) -> None:
+        self._callback_tasks.discard(task)
+        if task.cancelled():
+            return
+        error = task.exception()
+        if error is not None:
+            logger.error("Background callback error: %s", error)
 
     # -- binary dispatch ----------------------------------------------------
 

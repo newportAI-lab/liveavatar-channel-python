@@ -66,8 +66,8 @@ class PromptStream:
                 await self._send_json(
                     MessageBuilder.system_prompt_start(self._request_id, self._response_id)
                 )
-            except BaseException:
-                await self._lifecycle.rollback(pending)
+            except BaseException as error:
+                await self._lifecycle.rollback(pending, error)
                 raise
             self._pending = pending
             self._entered = True

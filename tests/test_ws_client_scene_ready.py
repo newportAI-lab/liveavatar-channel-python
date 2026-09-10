@@ -145,3 +145,37 @@ async def test_ws_client_rejects_wrongly_typed_response_state_fields():
     )
 
     assert callbacks.response_states == []
+
+
+@pytest.mark.asyncio
+async def test_text_input_callback_does_not_block_lifecycle_ingestion():
+    class BlockingCallbacks(FakeCallbacks):
+        def __init__(self):
+            super().__init__()
+            self.input_started = asyncio.Event()
+            self.release_input = asyncio.Event()
+
+        async def on_text_input(self, text, request_id):
+            self.input_started.set()
+            await self.release_input.wait()
+
+    callbacks = BlockingCallbacks()
+    client = _AvatarWsClient("ws://example.invalid", callbacks, asyncio.Event())
+    input_dispatch = asyncio.create_task(
+        client._handle_text(
+            '{"event":"input.text","requestId":"request-1","data":{"text":"hello"}}'
+        )
+    )
+    await callbacks.input_started.wait()
+    await asyncio.sleep(0)
+
+    assert input_dispatch.done() is True
+    await client._handle_text(
+        '{"event":"response.state","sessionId":"session-1",'
+        '"requestId":"request-1","responseId":"response-1","seq":1,'
+        '"timestamp":2,"data":{"state":"FINISHED","reason":"COMPLETED"}}'
+    )
+    assert len(callbacks.response_states) == 1
+
+    callbacks.release_input.set()
+    await client.disconnect()

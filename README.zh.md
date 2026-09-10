@@ -50,13 +50,14 @@ from liveavatar_channel_sdk import AgentListener, ResponseStateEvent
 
 class MyAgent(AgentListener):
     async def on_text_input(self, text: str, request_id: str) -> None:
-        async with self.agent.response_stream(request_id) as response:
+        response = self.agent.response_stream(request_id)
+        async with response:
             async for token in my_ai.stream(text):
                 await response.send_chunk(token)
 
-            terminal = await response.wait_finished()
-            if terminal.state == "FINISHED" and terminal.reason == "COMPLETED":
-                advance_business_workflow(request_id)
+        terminal = await response.wait_finished()
+        if terminal.state == "FINISHED" and terminal.reason == "COMPLETED":
+            advance_business_workflow(request_id)
 
     async def on_response_state(self, event: ResponseStateEvent) -> None:
         print(event.response_id, event.state, event.reason)

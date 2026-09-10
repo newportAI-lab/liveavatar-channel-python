@@ -53,13 +53,18 @@ class _ResponseLifecycleCoordinator:
             self._pending[key] = pending
             return pending
 
-    async def rollback(self, pending: _PendingResponse) -> None:
+    async def rollback(self, pending: _PendingResponse, error: BaseException) -> None:
         async with self._lock:
             key = (pending.session_id, pending.response_id)
             if self._pending.get(key) is pending:
                 self._pending.pop(key)
-        if not pending._future.done():
+        if pending._future.done():
+            return
+        if isinstance(error, asyncio.CancelledError):
             pending._future.cancel()
+        else:
+            pending._future.add_done_callback(_consume_future_exception)
+            pending._future.set_exception(error)
 
     async def handle(self, event: ResponseStateEvent) -> bool:
         completed: asyncio.Future[ResponseStateEvent] | None = None
@@ -89,3 +94,8 @@ class _ResponseLifecycleCoordinator:
         for response in pending:
             if not response._future.done():
                 response._future.cancel()
+
+
+def _consume_future_exception(future: asyncio.Future) -> None:
+    if not future.cancelled():
+        future.exception()
