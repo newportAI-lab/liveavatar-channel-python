@@ -17,6 +17,7 @@ from liveavatar_channel_sdk.exponential_backoff_strategy import ExponentialBacko
 from liveavatar_channel_sdk.resource_transition import ResourceTransitionData
 from liveavatar_channel_sdk.response_stream import ResponseStream, ResponseStreamStateError
 from liveavatar_channel_sdk.response_state import ResponseStateEvent
+from liveavatar_channel_sdk.prompt_stream import PromptStream, PromptStreamStateError
 
 __all__ = [
     "AvatarAgent",
@@ -36,4 +37,6 @@ __all__ = [
     "ResponseStream",
     "ResponseStreamStateError",
     "ResponseStateEvent",
+    "PromptStream",
+    "PromptStreamStateError",
 ]

@@ -30,6 +30,7 @@ import httpx
 from liveavatar_channel_sdk._ws_client import _AvatarWsClient
 from liveavatar_channel_sdk.audio_frame import AudioFrame
 from liveavatar_channel_sdk.message_builder import MessageBuilder
+from liveavatar_channel_sdk.prompt_stream import PromptStream
 from liveavatar_channel_sdk.resource_transition import ResourceTransitionData
 from liveavatar_channel_sdk.response_lifecycle import _ResponseLifecycleCoordinator
 from liveavatar_channel_sdk.response_state import ResponseStateEvent
@@ -442,6 +443,26 @@ class AvatarAgent:
 
     async def send_prompt(self, text: str, metadata: dict | None = None) -> None:
         await self._require_ws().send_json(MessageBuilder.system_prompt(text, metadata))
+
+    def prompt_stream(
+        self,
+        request_id: str,
+        *,
+        response_id: str | None = None,
+    ) -> PromptStream:
+        if not isinstance(request_id, str) or not request_id.strip():
+            raise ValueError("request_id must be non-empty")
+        if response_id is None:
+            response_id = str(uuid.uuid4())
+        if not isinstance(response_id, str) or not response_id.strip():
+            raise ValueError("response_id must be non-empty")
+        return PromptStream(
+            self._inbound_response_lifecycle,
+            self._send_response_json,
+            lambda: self._session_id,
+            request_id,
+            response_id,
+        )
 
     # -- send: error -------------------------------------------------------
 
