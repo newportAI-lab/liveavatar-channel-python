@@ -20,3 +20,15 @@ class ResponseStateEvent:
     timestamp: int
     state: str
     reason: str | None
+
+    def __post_init__(self) -> None:
+        for name in ("session_id", "request_id", "response_id", "state"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{name} must be a non-empty string")
+        for name in ("seq", "timestamp"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise ValueError(f"{name} must be an integer")
+        if self.reason is not None and not isinstance(self.reason, str):
+            raise ValueError("reason must be a string or None")

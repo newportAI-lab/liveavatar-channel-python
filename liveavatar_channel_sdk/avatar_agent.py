@@ -31,6 +31,8 @@ from liveavatar_channel_sdk._ws_client import _AvatarWsClient
 from liveavatar_channel_sdk.audio_frame import AudioFrame
 from liveavatar_channel_sdk.message_builder import MessageBuilder
 from liveavatar_channel_sdk.resource_transition import ResourceTransitionData
+from liveavatar_channel_sdk.response_lifecycle import _ResponseLifecycleCoordinator
+from liveavatar_channel_sdk.response_state import ResponseStateEvent
 from liveavatar_channel_sdk.response_stream import ResponseStream, _ResponseLifecycle
 from liveavatar_channel_sdk.session_models import (
     ErrorCode,
@@ -112,6 +114,9 @@ class AgentListener:
     async def on_closed(self, code: int, reason: str) -> None:
         """WebSocket connection closed."""
 
+    async def on_response_state(self, event: ResponseStateEvent) -> None:
+        """A response-specific lifecycle event was received."""
+
 
 # ------------------------------------------------------------------
 # AvatarAgentConfig
@@ -173,6 +178,7 @@ class AvatarAgent:
         self._session_id: str | None = None
         self._session_init_event = asyncio.Event()
         self._response_lifecycle = _ResponseLifecycle(self._send_response_json)
+        self._inbound_response_lifecycle = _ResponseLifecycleCoordinator()
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -195,6 +201,7 @@ class AvatarAgent:
             raise RuntimeError("Already started — call stop() first")
 
         self._session_init_event.clear()
+        await self._inbound_response_lifecycle.reset()
 
         # 1. Create HTTP client
         headers = {"Authorization": f"Bearer {self._config.api_key}"}
@@ -220,7 +227,7 @@ class AvatarAgent:
         # 3. Connect WebSocket
         self._ws_client = _AvatarWsClient(
             url=result.agent_ws_url,
-            callbacks=_ListenerBridge(self._listener),
+            callbacks=_ListenerBridge(self._listener, self._inbound_response_lifecycle),
             session_init_event=self._session_init_event,
         )
         await self._ws_client.connect(reconnect=self._config.reconnect)
@@ -253,6 +260,7 @@ class AvatarAgent:
             self._ws_client = None
 
         await self._response_lifecycle.reset()
+        await self._inbound_response_lifecycle.reset()
 
         if self._http_client is not None:
             await self._http_client.aclose()
@@ -480,8 +488,13 @@ class AvatarAgent:
 class _ListenerBridge:
     """Forwards _AgentCallbacks to AgentListener, suppressing exceptions."""
 
-    def __init__(self, listener: AgentListener) -> None:
+    def __init__(
+        self,
+        listener: AgentListener,
+        response_lifecycle: _ResponseLifecycleCoordinator | None = None,
+    ) -> None:
         self._listener = listener
+        self._response_lifecycle = response_lifecycle or _ResponseLifecycleCoordinator()
 
     async def on_session_init(self, session_id: str, user_id: str) -> None:
         try:
@@ -542,3 +555,11 @@ class _ListenerBridge:
             await self._listener.on_closed(code, reason)
         except Exception as exc:
             logger.error("on_closed error: %s", exc)
+
+    async def on_response_state(self, event: ResponseStateEvent) -> None:
+        if not await self._response_lifecycle.handle(event):
+            return
+        try:
+            await self._listener.on_response_state(event)
+        except Exception as exc:
+            logger.error("on_response_state error: %s", exc)

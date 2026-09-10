@@ -12,12 +12,16 @@ class FakeCallbacks:
     def __init__(self) -> None:
         self.scene_ready_count = 0
         self.resource_transition_data = None
+        self.response_states = []
 
     async def on_scene_ready(self) -> None:
         self.scene_ready_count += 1
 
     async def on_resource_transition(self, data) -> None:
         self.resource_transition_data = data
+
+    async def on_response_state(self, event) -> None:
+        self.response_states.append(event)
 
 
 @pytest.mark.asyncio
@@ -89,3 +93,55 @@ async def test_ws_client_does_not_route_blank_resource_transition_ids():
     )
 
     assert callbacks.resource_transition_data is None
+
+
+@pytest.mark.asyncio
+async def test_ws_client_routes_response_state_with_unknown_values():
+    callbacks = FakeCallbacks()
+    client = _AvatarWsClient("ws://example.invalid", callbacks, asyncio.Event())
+
+    await client._handle_text(
+        '{"event":"response.state","sessionId":"session-1",'
+        '"requestId":"request-1","responseId":"response-1","seq":8,'
+        '"timestamp":1788960000000,"data":{"state":"FUTURE","reason":"NEW_REASON",'
+        '"futureField":true},"futureTopLevel":"ignored"}'
+    )
+
+    assert len(callbacks.response_states) == 1
+    event = callbacks.response_states[0]
+    assert event.session_id == "session-1"
+    assert event.request_id == "request-1"
+    assert event.response_id == "response-1"
+    assert event.seq == 8
+    assert event.timestamp == 1788960000000
+    assert event.state == "FUTURE"
+    assert event.reason == "NEW_REASON"
+
+
+@pytest.mark.asyncio
+async def test_malformed_response_state_does_not_break_later_event_handling():
+    callbacks = FakeCallbacks()
+    client = _AvatarWsClient("ws://example.invalid", callbacks, asyncio.Event())
+
+    await client._handle_text('{"event":"response.state","data":{"state":"FINISHED"}}')
+    await client._handle_text(
+        '{"event":"response.state","sessionId":"session-1",'
+        '"requestId":"request-1","responseId":"response-1","seq":1,'
+        '"timestamp":2,"data":{"state":"ACCEPTED"}}'
+    )
+
+    assert len(callbacks.response_states) == 1
+
+
+@pytest.mark.asyncio
+async def test_ws_client_rejects_wrongly_typed_response_state_fields():
+    callbacks = FakeCallbacks()
+    client = _AvatarWsClient("ws://example.invalid", callbacks, asyncio.Event())
+
+    await client._handle_text(
+        '{"event":"response.state","sessionId":"session-1",'
+        '"requestId":"request-1","responseId":"response-1","seq":"1",'
+        '"timestamp":2,"data":{"state":"ACCEPTED"}}'
+    )
+
+    assert callbacks.response_states == []

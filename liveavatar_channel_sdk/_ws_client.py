@@ -19,6 +19,7 @@ from liveavatar_channel_sdk.event_type import EventType
 from liveavatar_channel_sdk.exponential_backoff_strategy import ExponentialBackoffStrategy
 from liveavatar_channel_sdk.message_builder import MessageBuilder
 from liveavatar_channel_sdk.resource_transition import ResourceTransitionData
+from liveavatar_channel_sdk.response_state import ResponseStateEvent
 from liveavatar_channel_sdk.session_state import SessionState
 
 logger = logging.getLogger(__name__)
@@ -44,6 +45,7 @@ class _AgentCallbacks(Protocol):
     async def on_error(self, code: str, message: str) -> None: ...
     async def on_audio_frame(self, frame: AudioFrame) -> None: ...
     async def on_closed(self, code: int, reason: str) -> None: ...
+    async def on_response_state(self, event: ResponseStateEvent) -> None: ...
 
 
 class _AvatarWsClient:
@@ -216,6 +218,19 @@ class _AvatarWsClient:
 
             elif event_type == EventType.SCENE_READY:
                 await self._callbacks.on_scene_ready()
+
+            elif event_type == EventType.RESPONSE_STATE:
+                await self._callbacks.on_response_state(
+                    ResponseStateEvent(
+                        session_id=msg["sessionId"],
+                        request_id=msg["requestId"],
+                        response_id=msg["responseId"],
+                        seq=msg["seq"],
+                        timestamp=msg["timestamp"],
+                        state=data["state"],
+                        reason=data.get("reason"),
+                    )
+                )
 
             else:
                 logger.warning("Unhandled event in Agent mode: %s", event_type)
