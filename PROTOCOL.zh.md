@@ -51,6 +51,7 @@
 | chunk       | response.chunk     |
 | done        | response.done      |
 | cancel      | response.cancel    |
+| state       | response.state     |
 | interrupt   | control.interrupt  |
 | prompt      | system.prompt      |
 | idleTrigger | system.idleTrigger |
@@ -332,7 +333,42 @@ seq = response 内递增。
 
 ---
 
-### 5️⃣ 状态同步（数字人服务发送）
+#### state（数字人服务发送）
+
+`response.state` 描述某一个具体 response 的生命周期。它不同于描述整个会话的
+`session.state`。
+
+```json
+{
+  "event": "response.state",
+  "sessionId": "session-123",
+  "requestId": "req_1",
+  "responseId": "res_1",
+  "seq": 128,
+  "timestamp": 1788960000000,
+  "data": {
+    "state": "FINISHED",
+    "reason": "COMPLETED"
+  }
+}
+```
+
+状态为 `ACCEPTED`、`REJECTED`、`FINISHED`。当前原因包括 `COMPLETED`、
+`USER_COMMAND_INTERRUPT`、`DEVELOPER_COMMAND_INTERRUPT`、`FAILED`、
+`RENDERER_FAILED`、`STATE_TRANSITION_FAILED`、`INTERNAL_ERROR`、
+`SESSION_CLOSED`、`INVALID_REQUEST`、`SESSION_BUSY`、
+`RESPONSE_ID_CONFLICT`、`REQUEST_ID_CONFLICT`、`SEQUENCE_CONFLICT`、
+`SEQUENCE_GAP` 和 `STREAM_ALREADY_DONE`。接收方必须容忍未来新增值。首个
+`REJECTED` 或 `FINISHED` 是不可覆盖的终态。在线事件按 `sessionId + seq`
+去重，序号可以跳跃。
+
+业务推进必须匹配预期 `responseId` 和 `FINISHED/COMPLETED`；
+`session.state=IDLE`、任何 `done`、音频结束、track EOS 或本地任务取消都不能
+证明播报完成。
+
+---
+
+### 5️⃣ 会话状态同步（数字人服务发送）
 
 ```json
 {
@@ -733,31 +769,7 @@ TS 和 Seq 均为循环计数器，接收端必须使用模运算进行比较，
 
 ---
 
-# Response 生命周期与流式 System Prompt
-
-`session.state` 描述整个会话，不能用于判断某个具体 response 已完成。平台会发布
-精确到 response 的生命周期事件：
-
-```json
-{
-  "event": "response.state",
-  "sessionId": "session-123",
-  "requestId": "course-step-42",
-  "responseId": "prompt-uuid",
-  "seq": 128,
-  "timestamp": 1788960000000,
-  "data": {"state": "FINISHED", "reason": "COMPLETED"}
-}
-```
-
-状态为 `ACCEPTED`、`REJECTED`、`FINISHED`。当前原因包括 `COMPLETED`、
-`USER_COMMAND_INTERRUPT`、`DEVELOPER_COMMAND_INTERRUPT`、`FAILED`、
-`RENDERER_FAILED`、`STATE_TRANSITION_FAILED`、`INTERNAL_ERROR`、
-`SESSION_CLOSED`、`INVALID_REQUEST`、`SESSION_BUSY`、
-`RESPONSE_ID_CONFLICT`、`REQUEST_ID_CONFLICT`、`SEQUENCE_CONFLICT`、
-`SEQUENCE_GAP` 和 `STREAM_ALREADY_DONE`。接收方必须容忍未来新增值。首个
-`REJECTED` 或 `FINISHED` 是不可覆盖的终态。在线事件按 `sessionId + seq`
-去重，序号可以跳跃。
+# 流式 System Prompt
 
 流式系统提示在整条流中使用同一组标识：
 
@@ -768,9 +780,8 @@ TS 和 Seq 均为循环计数器，接收端必须使用模运算进行比较，
 ```
 
 两个 ID 均必填且非空。chunk 序号从 1 开始并按 response 递增。
-`system.prompt.done` 仅结束文本生产。业务推进必须匹配预期 `responseId` 和
-`FINISHED/COMPLETED`；`session.state=IDLE`、任何 `done`、音频结束、track EOS
-或本地任务取消都不能证明播报完成。
+`system.prompt.done` 仅结束文本生产；完成状态通过上文所述的
+`response.state` 单独报告。
 
 ---
 

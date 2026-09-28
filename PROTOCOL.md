@@ -50,6 +50,7 @@ Describes "what is being done"
 | asr | input.asr |
 | chunk | response.chunk |
 | done | response.done |
+| state | response.state |
 | interrupt | control.interrupt |
 | prompt | system.prompt |
 | idleTrigger | system.idleTrigger |
@@ -345,7 +346,42 @@ Sent by the Developer Service **before** the first `response.chunk`. Use this to
 
 ---
 
-### 5️⃣ State Synchronization (Sent by the Live Avatar Service)
+#### state (Sent by the Live Avatar Service)
+
+`response.state` reports the lifecycle of one specific response. It is distinct
+from `session.state`, which describes the whole session.
+
+```json
+{
+  "event": "response.state",
+  "sessionId": "session-123",
+  "requestId": "req_1",
+  "responseId": "res_1",
+  "seq": 128,
+  "timestamp": 1788960000000,
+  "data": {
+    "state": "FINISHED",
+    "reason": "COMPLETED"
+  }
+}
+```
+
+States are `ACCEPTED`, `REJECTED`, and `FINISHED`. Current reasons are
+`COMPLETED`, `USER_COMMAND_INTERRUPT`, `DEVELOPER_COMMAND_INTERRUPT`, `FAILED`,
+`RENDERER_FAILED`, `STATE_TRANSITION_FAILED`, `INTERNAL_ERROR`, `SESSION_CLOSED`,
+`INVALID_REQUEST`, `SESSION_BUSY`, `RESPONSE_ID_CONFLICT`,
+`REQUEST_ID_CONFLICT`, `SEQUENCE_CONFLICT`, `SEQUENCE_GAP`, and
+`STREAM_ALREADY_DONE`. Receivers must tolerate future values. The first
+`REJECTED` or `FINISHED` is terminal and cannot be overwritten. Use
+`sessionId + seq` for online deduplication; sequence gaps are valid.
+
+Business progression requires the expected `responseId` plus
+`FINISHED/COMPLETED`. `session.state=IDLE`, any `done`, audio finish, track EOS,
+or local cancellation does not prove playback completion.
+
+---
+
+### 5️⃣ Session State Synchronization (Sent by the Live Avatar Service)
 
 ```json
 {
@@ -746,32 +782,7 @@ Whether the audio data is sent from the Live Avatar Service to a developer, or f
 
 ---
 
-# Response Lifecycle and Streaming System Prompts
-
-`session.state` describes the whole session and MUST NOT be used to decide that a
-specific response completed. The platform publishes response-specific lifecycle
-events:
-
-```json
-{
-  "event": "response.state",
-  "sessionId": "session-123",
-  "requestId": "course-step-42",
-  "responseId": "prompt-uuid",
-  "seq": 128,
-  "timestamp": 1788960000000,
-  "data": {"state": "FINISHED", "reason": "COMPLETED"}
-}
-```
-
-States are `ACCEPTED`, `REJECTED`, and `FINISHED`. Current reasons are
-`COMPLETED`, `USER_COMMAND_INTERRUPT`, `DEVELOPER_COMMAND_INTERRUPT`, `FAILED`,
-`RENDERER_FAILED`, `STATE_TRANSITION_FAILED`, `INTERNAL_ERROR`, `SESSION_CLOSED`,
-`INVALID_REQUEST`, `SESSION_BUSY`, `RESPONSE_ID_CONFLICT`,
-`REQUEST_ID_CONFLICT`, `SEQUENCE_CONFLICT`, `SEQUENCE_GAP`, and
-`STREAM_ALREADY_DONE`. Receivers must tolerate future values. The first
-`REJECTED` or `FINISHED` is terminal and cannot be overwritten. Use
-`sessionId + seq` for online deduplication; sequence gaps are valid.
+# Streaming System Prompts
 
 A streaming system prompt uses one stable identity:
 
@@ -782,10 +793,8 @@ A streaming system prompt uses one stable identity:
 ```
 
 Both IDs are required and non-empty. Chunk sequences start at 1 and increase for
-that response. `system.prompt.done` only closes text production. Business
-progression requires the expected `responseId` plus `FINISHED/COMPLETED`;
-`session.state=IDLE`, any `done`, audio finish, track EOS, or local cancellation
-does not prove playback completion.
+that response. `system.prompt.done` only closes text production. Completion is
+reported separately through `response.state` as described above.
 
 ---
 
