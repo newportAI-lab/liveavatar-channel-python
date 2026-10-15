@@ -1,0 +1,7 @@
+#!/bin/sh
+cd "$(dirname "$0")/.."
+if grep -qx 'SDK-Version-Bump: skip' "$1"; then
+  echo "SDK version bump skipped by commit message."
+  exit 0
+fi
+exec ./scripts/check-sdk-version-bump.sh staged

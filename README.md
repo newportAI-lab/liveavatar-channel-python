@@ -4,7 +4,7 @@
 
 A Python SDK for the Live Avatar WebSocket protocol. Connect your AI backend to a live avatar service with text, audio, and image communication.
 
-**Version 0.4.0** — response lifecycle tracking and streaming system prompts.
+**Version 0.4.1**
 
 ## Installation
 
@@ -230,6 +230,7 @@ All send methods are available on `AvatarAgent`. They are grouped by protocol ro
 | `send_response_audio_finish(request_id, response_id, metadata=None)` | `response.audio.finish` | Signal that audio output finished |
 | `send_prompt_audio_start()` | `response.audio.promptStart` | Idle-prompt audio starting |
 | `send_prompt_audio_finish()` | `response.audio.promptFinish` | Idle-prompt audio finished |
+| `send_external_audio(pcm, timestamp_us=0)` | *(binary)* | External PCM. It is played and does not drive lip sync. Do not use `response.audio.*` |
 
 ### Developer ASR / Omni (you run ASR + VAD on raw audio)
 
@@ -244,8 +245,29 @@ All send methods are available on `AvatarAgent`. They are grouped by protocol ro
 
 | Method | Event | Description |
 |---|---|---|
-| `send_interrupt(request_id=None, metadata=None)` | `control.interrupt` | Proactive, business-logic-driven interrupt. Optional `request_id` for precise targeting. |
+| `send_interrupt(request_id=None, metadata=None, interrupt_scope=None)` | `control.interrupt` | Stop voice, clear external audio, or both. See the scope table below |
 | `send_prompt(text, metadata=None)` | `system.prompt` | Push idle-wakeup text for TTS playback |
+
+`send_interrupt` adds the string parameter `interrupt_scope`.
+
+| Value | Effect |
+|---|---|
+| omitted, empty, or `VOICE_ONLY` | Stop voice playback. External audio continues |
+| `BGM_ONLY` | Clear queued external audio. Voice playback continues |
+| `VOICE_AND_ACCOMPANIMENT` | Stop voice playback and clear queued external audio |
+
+The value is sent as `data.interruptScope` on `control.interrupt`. Leading and trailing spaces are removed. Any other value is rejected before sending. Audio that belongs to the base video is not cleared.
+
+`AvatarAgentConfig` adds the optional parameter `external_audio_config`.
+
+| Field | Values |
+|---|---|
+| `sampleRate` | `0` or omitted follows the session voice format. Otherwise 16000, 24000, 44100, or 48000 |
+| `channels` | `0` or omitted follows the session voice format. Otherwise 1 or 2 |
+
+It is sent as `externalAudioConfig` on session start. `send_external_audio(pcm, timestamp_us=0)` is a new method. `pcm` is 16-bit little-endian PCM, and `timestamp_us` of `0` lets the platform choose the presentation time. Its sample rate and channel count must match `external_audio_config` when that parameter is set. When it is not set, they must match the TTS audio format used for this session.
+
+One binary frame, including its header, must not exceed 65536 bytes. A larger frame closes the WebSocket. Send each later packet before the audio already queued has finished playing. For example, do not wait a full 200 ms before sending the next 200 ms packet. Make the first packet longer than the later packets, while still staying under the 65536-byte limit, so playback has audio waiting when it starts.
 
 `metadata` is optional business context merged into the message `data` payload.
 It is useful for correlating multi-step application flows such as interviews,

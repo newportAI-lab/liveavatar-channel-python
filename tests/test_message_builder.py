@@ -327,6 +327,11 @@ class TestMessageBuilderControl:
         assert msg["requestId"] == "req-1"
         assert set(msg.keys()) == {"event", "requestId"}
 
+    def test_bgm_only_sets_scope_and_strips_spaces(self):
+        msg = MessageBuilder.control_interrupt(interrupt_scope=" BGM_ONLY ")
+        assert msg["data"]["interruptScope"] == "BGM_ONLY"
+        assert "requestId" not in msg
+
     def test_control_interrupt_with_metadata(self):
         msg = MessageBuilder.control_interrupt(
             request_id="req-1",

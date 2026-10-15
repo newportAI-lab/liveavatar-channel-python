@@ -50,10 +50,10 @@ def test_documentation_describes_response_stream_lifecycle_and_release_version()
         assert "async with" in quick_start
         assert "response_stream" in quick_start
         assert '"resp-1"' not in quick_start
-        assert "0.4.0" in readme
+        assert "0.4.1" in readme
         assert "0.2.7" not in readme
 
-    assert 'version = "0.4.0"' in package_metadata
+    assert 'version = "0.4.1"' in package_metadata
     assert "0.2.7" not in package_metadata
 
 
