@@ -154,6 +154,7 @@ class AvatarAgentConfig:
     developer_asr: bool = True
     voice_id: str | None = None
     voice_config: dict[str, int | float | None] | None = None
+    external_audio_config: dict[str, int] | None = None
     reconnect: bool = False
     reconnect_base_delay: float = 1.0
     reconnect_max_delay: float = 60.0
@@ -302,6 +303,9 @@ class AvatarAgent:
             body["voiceId"] = self._config.voice_id
         if self._config.voice_config:
             body["voiceConfig"] = _serialize_voice_config(self._config.voice_config)
+        if self._config.external_audio_config is not None:
+            _validate_external_audio_config(self._config.external_audio_config)
+            body["externalAudioConfig"] = self._config.external_audio_config
 
         resp = await self._http_client.post("/v1/session/start", json=body)
         resp.raise_for_status()
@@ -471,9 +475,25 @@ class AvatarAgent:
     # -- send: control -----------------------------------------------------
 
     async def send_interrupt(
-        self, request_id: str | None = None, metadata: dict | None = None
+        self,
+        request_id: str | None = None,
+        metadata: dict | None = None,
+        *,
+        interrupt_scope: str | None = None,
     ) -> None:
-        await self._require_ws().send_json(MessageBuilder.control_interrupt(request_id, metadata))
+        """Interrupt voice, external audio, or both. See MessageBuilder.control_interrupt."""
+        await self._require_ws().send_json(
+            MessageBuilder.control_interrupt(request_id, metadata, interrupt_scope)
+        )
+
+    async def send_external_audio(self, pcm: bytes, *, timestamp_us: int = 0) -> None:
+        if not isinstance(pcm, (bytes, bytearray)) or len(pcm) == 0 or len(pcm) % 2 != 0:
+            raise ValueError("pcm must be non-empty S16LE bytes")
+        sequence = getattr(self, "_external_audio_sequence", 0) + 1
+        self._external_audio_sequence = sequence
+        await self._require_ws().send_binary(
+            encode_external_audio_frame(sequence, timestamp_us, bytes(pcm))
+        )
 
     async def send_prompt(self, text: str, metadata: dict | None = None) -> None:
         await self._require_ws().send_json(MessageBuilder.system_prompt(text, metadata))
@@ -626,3 +646,16 @@ class _ListenerBridge:
             await self._listener.on_response_state(event)
         except Exception as exc:
             logger.error("on_response_state error: %s", exc)
+
+
+def _validate_external_audio_config(config: dict) -> None:
+    rate = int(config.get("sampleRate") or 0)
+    channels = int(config.get("channels") or 0)
+    if rate < 0 or channels < 0 or rate not in (0, 16000, 24000, 44100, 48000):
+        raise ValueError("external_audio_config")
+
+
+def encode_external_audio_frame(sequence: int, timestamp_us: int, pcm: bytes) -> bytes:
+    return b"EXAU" + bytes([1]) + sequence.to_bytes(8, "big") + int(timestamp_us).to_bytes(
+        8, "big", signed=True
+    ) + len(pcm).to_bytes(4, "big") + pcm

@@ -4,7 +4,7 @@
 
 用于 Live Avatar WebSocket 协议的 Python SDK。将你的 AI 后端连接到实时数字人服务，支持文本、音频和图像通信。
 
-**版本 0.4.0** — 支持精确响应生命周期和流式系统提示词。
+**版本 0.4.1**
 
 ## 安装
 
@@ -221,6 +221,7 @@ packed = frame.pack()   # bytes（9 字节头部 + 负载）
 | `send_response_audio_finish(request_id, response_id, metadata=None)` | `response.audio.finish` | 表示音频输出结束 |
 | `send_prompt_audio_start()` | `response.audio.promptStart` | 空闲提示音频开始 |
 | `send_prompt_audio_finish()` | `response.audio.promptFinish` | 空闲提示音频结束 |
+| `send_external_audio(pcm, timestamp_us=0)` | *(二进制)* | 外部 PCM。只播放，不驱动口型。不要使用 `response.audio.*` |
 
 ### Developer ASR / Omni（你在原始音频上运行 ASR + VAD）
 
@@ -235,8 +236,29 @@ packed = frame.pack()   # bytes（9 字节头部 + 负载）
 
 | 方法 | 事件 | 说明 |
 |---|---|---|
-| `send_interrupt(request_id=None, metadata=None)` | `control.interrupt` | 主动的业务逻辑打断。可选 `request_id` 实现精确目标 |
+| `send_interrupt(request_id=None, metadata=None, interrupt_scope=None)` | `control.interrupt` | 停止语音、清除外部音频，或两者都做。取值见下表 |
 | `send_prompt(text, metadata=None)` | `system.prompt` | 推送空闲唤醒文本触发 TTS 播放 |
+
+`send_interrupt` 新增字符串参数 `interrupt_scope`。
+
+| 取值 | 效果 |
+|---|---|
+| 不传、空字符串或 `VOICE_ONLY` | 只停止语音播放。外部音频继续播放 |
+| `BGM_ONLY` | 只清除尚未播放的外部音频。语音继续播放 |
+| `VOICE_AND_ACCOMPANIMENT` | 停止语音播放，并清除尚未播放的外部音频 |
+
+该参数的值写入事件 `control.interrupt` 的 `data.interruptScope`。取值前后的空格会被去掉，其他取值在发送前被拒绝。底板视频中的音频不会被清除。
+
+`AvatarAgentConfig` 新增可选参数 `external_audio_config`。
+
+| 字段 | 取值 |
+|---|---|
+| `sampleRate` | `0` 或不填表示跟随本次语音格式。其他值只能是 16000、24000、44100 或 48000 |
+| `channels` | `0` 或不填表示跟随本次语音格式。其他值为 1 或 2 |
+
+开播时这个参数以 `externalAudioConfig` 发送。`send_external_audio(pcm, timestamp_us=0)` 是新增方法。`pcm` 为 16 位小端 PCM，`timestamp_us` 为 `0` 时由平台填写呈现时间。采样率和声道必须与 `external_audio_config` 一致；未设置该参数时，必须与本次会话的 TTS 音频格式一致。
+
+单个二进制帧含协议头后不得超过 65536 字节，超过后 WebSocket 会被关闭。后续每个包都要在已发送音频播放完之前送到。例如一包含 200 毫秒音频时，不要等满 200 毫秒再发下一包。第一包可以比后面的包更长，用来先准备一段可播放的音频，但仍然不能超过 65536 字节。
 
 `metadata` 是可选业务上下文，会合并到消息的 `data` payload 中。它适合用来关联面试等多步业务流程里的 prompt、ASR、response 和 control 事件。Metadata 不能覆盖 `text`、`final`、`audioConfig` 等协议保留字段。
 

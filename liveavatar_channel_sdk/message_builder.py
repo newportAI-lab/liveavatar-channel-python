@@ -222,14 +222,29 @@ class MessageBuilder:
 
     @staticmethod
     def control_interrupt(
-        request_id: Optional[str] = None, metadata: Optional[dict] = None
+        request_id: Optional[str] = None,
+        metadata: Optional[dict] = None,
+        interrupt_scope: Optional[str] = None,
     ) -> dict:
-        """control.interrupt: Interrupt current playback; optional request_id for targeting."""
+        """control.interrupt.
+
+        interrupt_scope: omit, blank, or VOICE_ONLY stops voice only.
+        BGM_ONLY clears queued external audio only.
+        VOICE_AND_ACCOMPANIMENT stops voice and clears queued external audio.
+        """
         msg = {"event": EventType.CONTROL_INTERRUPT}
         if request_id is not None:
             msg["requestId"] = request_id
-        if metadata:
-            msg["data"] = _data_with_metadata(metadata=metadata)
+        if interrupt_scope is not None:
+            interrupt_scope = interrupt_scope.strip() or None
+        data = _data_with_metadata(metadata=metadata) if metadata else {}
+        if interrupt_scope in ("VOICE_AND_ACCOMPANIMENT", "BGM_ONLY"):
+            data = dict(data)
+            data["interruptScope"] = interrupt_scope
+        elif interrupt_scope not in (None, "", "VOICE_ONLY"):
+            raise ValueError("interrupt_scope")
+        if data:
+            msg["data"] = data
         return msg
 
     @staticmethod

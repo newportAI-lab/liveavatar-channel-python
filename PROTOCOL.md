@@ -414,9 +414,22 @@ or local cancellation does not prove playback completion.
 ```json
 {
   "event": "control.interrupt",
-  "requestId": "req_2"
+  "requestId": "req_2",
+  "data": {
+    "interruptScope": "VOICE_AND_ACCOMPANIMENT"
+  }
 }
 ```
+
+`interruptScope` can be omitted.
+
+- Omit it, leave it empty, or send `VOICE_ONLY`: stop the voice only. External audio keeps playing.
+- `BGM_ONLY`: clear queued external audio only. The voice keeps playing.
+- `VOICE_AND_ACCOMPANIMENT`: stop the voice and clear queued external audio.
+
+Audio that belongs to the base video is never cleared. New external audio can still be sent after the interrupt.
+
+Send external audio with `send_external_audio(pcm)`, not `response.audio.*`. Omit `external_audio_config` at start to follow the voice format. A non-zero sample rate must be 16000, 24000, 44100, or 48000.
 
 A signal for **explicit programmatic interruption**, initiated by the Developer Service in scenarios not triggered by any user input event (e.g., backend timeout, business-logic override).
 

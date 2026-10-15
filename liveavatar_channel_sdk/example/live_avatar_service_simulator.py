@@ -126,3 +126,79 @@ async def main() -> None:
 
 if __name__ == "__main__":
     asyncio.run(main())
+
+# Call examples. Nothing below runs.
+#
+# config = AvatarAgentConfig(
+#     api_key=API_KEY,
+#     avatar_id=AVATAR_ID,
+#     base_url=PLATFORM_URL,
+#     sandbox=False,
+#     timeout=30.0,
+#     developer_tts=False,
+#     developer_asr=True,
+#     voice_id=None,
+#     voice_config={"volume": 80, "speed": 1.0},
+#     reconnect=False,
+#     external_audio_config={"sampleRate": 48000, "channels": 2},
+# )
+# sampleRate 0 follows the session voice format. Otherwise use 16000, 24000,
+# 44100, or 48000. channels 0 follows voice. Otherwise use 1 or 2.
+# agent = AvatarAgent(config, listener)
+# result = await agent.start()
+# agent.session_id
+# agent.is_running
+#
+# response = agent.response_stream(request_id)
+# await response.start(audio_config)
+# await response.send_chunk("Hello")
+# await response.done()
+# await response.cancel()
+# Deprecated. Prefer response_stream:
+# await agent.send_response_start(request_id, response_id)
+# await agent.send_response_chunk(request_id, response_id, seq, timestamp, "Hello")
+# await agent.send_response_done(request_id, response_id)
+# await agent.send_response_cancel(response_id)
+#
+# await agent.send_response_audio_start(request_id, response_id)
+# await agent.send_audio_frame(frame)  # 9-byte voice frame. This drives lip sync.
+# await agent.send_response_audio_finish(request_id, response_id)
+# await agent.send_prompt_audio_start()
+# await agent.send_prompt_audio_finish()
+#
+# await agent.send_voice_start(request_id)
+# await agent.send_asr_partial(request_id, "partial", seq)
+# await agent.send_voice_finish(request_id)
+# await agent.send_asr_final(request_id, "final text")
+#
+# await agent.send_prompt("Are you still there?")
+# prompt = agent.prompt_stream(request_id)
+# await prompt.send_chunk("Hello")
+# await prompt.done()
+#
+# pcm = b"\x00" * 38400  # 200 ms, 48000 Hz, stereo, 16-bit
+# The PCM rate and channel count must match external_audio_config when it is set.
+# If it is omitted, match the session TTS audio format.
+# One binary frame, including its header, must not exceed 65536 bytes.
+# Send the next packet before the previous audio finishes playing.
+# The first packet may be longer than later packets, but not over that limit.
+# await agent.send_external_audio(pcm)
+# await agent.send_external_audio(pcm, timestamp_us=0)
+#
+# send_interrupt adds the string parameter interrupt_scope.
+# await agent.send_interrupt()  # same as VOICE_ONLY: stop voice only
+# await agent.send_interrupt(interrupt_scope="VOICE_ONLY")
+# await agent.send_interrupt(interrupt_scope="BGM_ONLY")  # clear queued external audio only
+# await agent.send_interrupt(interrupt_scope="VOICE_AND_ACCOMPANIMENT")  # stop both
+# The value is sent as data.interruptScope on control.interrupt.
+#
+# await agent.send_error("APP_ERROR", "something failed", request_id)
+# await agent.send_custom_event(request_id, "scene.switchVideo", {
+#     "onceVideos": ["fist_bump"],  # resourceId or alias
+#     "loopVideos": ["01KTJNMD7NZJF4KMGCCFSTJN4X"],
+# })
+# await agent.stop()
+#
+# Listener methods you can override: on_text_input, on_session_init,
+# on_session_state, on_resource_transition, on_session_closing, on_idle_trigger,
+# on_scene_ready, on_audio_frame, on_error, on_closed, on_response_state.
