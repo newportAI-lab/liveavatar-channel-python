@@ -2,6 +2,10 @@
 
 本文件记录本 SDK 的主要变化。日期为发布日期。
 
+## [0.4.2] - 2026-10-20
+
+- Fixed: `AvatarAgentConfig` 默认开启自动重连，可显式设置 `reconnect=False` 关闭。
+
 ## [0.4.1] - 2026-10-15
 
 1. Added: `AvatarAgentConfig` 新增可选参数 `external_audio_config`。`sampleRate`：`0` 或不填表示跟随本次语音格式，其他值只能是 16000、24000、44100 或 48000。`channels`：`0` 或不填表示跟随本次语音格式，其他值为 1 或 2。其余取值会被拒绝。开播时以 `externalAudioConfig` 发送。

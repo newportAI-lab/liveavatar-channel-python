@@ -140,7 +140,7 @@ class AvatarAgentConfig:
         developer_asr:      Developer runs ASR + VAD.
         voice_id:           Override avatar default voice.
         voice_config:       Optional voice settings for /session/start.
-        reconnect:          Enable auto-reconnect on disconnect.
+        reconnect:          Enable auto-reconnect on disconnect (default True).
         reconnect_base_delay:  Base delay for exponential backoff (s).
         reconnect_max_delay:  Max delay for exponential backoff (s).
     """
@@ -155,7 +155,7 @@ class AvatarAgentConfig:
     voice_id: str | None = None
     voice_config: dict[str, int | float | None] | None = None
     external_audio_config: dict[str, int] | None = None
-    reconnect: bool = False
+    reconnect: bool = True
     reconnect_base_delay: float = 1.0
     reconnect_max_delay: float = 60.0
 

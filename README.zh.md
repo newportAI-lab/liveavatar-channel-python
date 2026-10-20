@@ -4,7 +4,7 @@
 
 用于 Live Avatar WebSocket 协议的 Python SDK。将你的 AI 后端连接到实时数字人服务，支持文本、音频和图像通信。
 
-**版本 0.4.1**
+**版本 0.4.2**
 
 ## 安装
 
@@ -334,7 +334,7 @@ ID 为空白字符串，SDK 会丢弃该事件，不会触发 `on_resource_trans
 | `developer_asr` | `True` | 默认由开发者运行 ASR + VAD；设为 `False` 使用平台 ASR |
 | `voice_id` | `None` | 覆盖数字人的默认音色 |
 | `voice_config` | `None` | 可选的 `/session/start` 音色参数：`volume`、`speed`、`stability`、`similarity_boost`、`style`、`pitch` |
-| `reconnect` | `False` | 断开时启用自动重连 |
+| `reconnect` | `True` | 断开时启用自动重连 |
 | `reconnect_base_delay` | `1.0` | 指数退避的基础延迟（秒） |
 | `reconnect_max_delay` | `60.0` | 指数退避的最大延迟（秒） |
 

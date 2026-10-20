@@ -830,3 +830,13 @@ async def test_rest_start_sandbox_header(httpx_mock):
         assert headers_capture["x-env-sandbox"] == "true"
     finally:
         await agent._http_client.aclose()
+
+
+def test_config_enables_reconnect_by_default():
+    config = AvatarAgentConfig(api_key="sk-test", avatar_id="avatar-1")
+    assert config.reconnect is True
+
+
+def test_config_allows_disabling_reconnect():
+    config = AvatarAgentConfig(api_key="sk-test", avatar_id="avatar-1", reconnect=False)
+    assert config.reconnect is False

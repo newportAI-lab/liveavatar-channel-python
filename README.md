@@ -4,7 +4,7 @@
 
 A Python SDK for the Live Avatar WebSocket protocol. Connect your AI backend to a live avatar service with text, audio, and image communication.
 
-**Version 0.4.1**
+**Version 0.4.2**
 
 ## Installation
 
@@ -349,7 +349,7 @@ the SDK drops it and does not invoke `on_resource_transition`.
 | `developer_asr` | `True` | Developer runs ASR + VAD by default; set to `False` for platform ASR |
 | `voice_id` | `None` | Override the avatar's default voice |
 | `voice_config` | `None` | Optional `/session/start` voice settings: `volume`, `speed`, `stability`, `similarity_boost`, `style`, `pitch` |
-| `reconnect` | `False` | Enable auto-reconnect on disconnect |
+| `reconnect` | `True` | Enable auto-reconnect on disconnect |
 | `reconnect_base_delay` | `1.0` | Base delay for exponential backoff (seconds) |
 | `reconnect_max_delay` | `60.0` | Maximum delay for exponential backoff (seconds) |
 

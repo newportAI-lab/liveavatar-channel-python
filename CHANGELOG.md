@@ -2,6 +2,10 @@
 
 Notable changes to this SDK are documented here. The date is the release day.
 
+## [0.4.2] - 2026-10-20
+
+- Fixed: Enable auto-reconnect by default in `AvatarAgentConfig`. Set `reconnect=False` to opt out.
+
 ## [0.4.1] - 2026-10-15
 
 1. Added: `AvatarAgentConfig` adds the optional parameter `external_audio_config`. `sampleRate`: `0` or omitted follows the session voice format; otherwise 16000, 24000, 44100, or 48000. `channels`: `0` or omitted follows the session voice format; otherwise 1 or 2. Any other value is rejected. On session start it is sent as `externalAudioConfig`.
