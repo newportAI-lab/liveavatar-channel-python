@@ -416,7 +416,7 @@ seq = session 内递增。所有 state 值（后续可能扩展）：
 
 底板视频自带的声音不会被清掉。打断之后仍然可以继续发送外部音频。
 
-外部音频用 `send_external_audio(pcm)` 发送，不走 `response.audio.*`。开播字段 `external_audio_config` 不传时，格式跟随本次人声。非 0 采样率只允许 16000、24000、44100、48000。
+伴奏用 `send_external_audio(pcm)` 发送，不走 `response.audio.*`。开播字段 `external_audio_config` 不传时，格式跟随本次人声。非 0 采样率只允许 16000、24000、44100、48000。平台 TTS 会话中要把开发者 PCM 当人声轮播放时，用 `send_external_playback(request_id, response_id, frames)`。它发送 `response.audio.start` 和 `response.audio.finish`，`data.purpose` 为 `external`，随后发送现有二进制帧。SDK 不重采样。
 
 开发者服务发起的**程序化主动打断**信号，适用于非用户输入事件触发的场景（如后端超时、业务逻辑强制打断等）。
 

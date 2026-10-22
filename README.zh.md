@@ -4,7 +4,7 @@
 
 用于 Live Avatar WebSocket 协议的 Python SDK。将你的 AI 后端连接到实时数字人服务，支持文本、音频和图像通信。
 
-**版本 0.4.2**
+**版本 0.4.3**
 
 ## 安装
 
@@ -221,7 +221,8 @@ packed = frame.pack()   # bytes（9 字节头部 + 负载）
 | `send_response_audio_finish(request_id, response_id, metadata=None)` | `response.audio.finish` | 表示音频输出结束 |
 | `send_prompt_audio_start()` | `response.audio.promptStart` | 空闲提示音频开始 |
 | `send_prompt_audio_finish()` | `response.audio.promptFinish` | 空闲提示音频结束 |
-| `send_external_audio(pcm, timestamp_us=0)` | *(二进制)* | 外部 PCM。只播放，不驱动口型。不要使用 `response.audio.*` |
+| `send_external_audio(pcm, timestamp_us=0)` | *(二进制)* | 伴奏 PCM。只播放，不驱动口型。不要使用 `response.audio.*` |
+| `send_external_playback(request_id, response_id, frames)` | `response.audio.start` / 二进制 / `response.audio.finish` | 平台 TTS 会话中把开发者 PCM 当人声轮播放。`data.purpose` 为 `external`。SDK 不重采样 |
 
 ### Developer ASR / Omni（你在原始音频上运行 ASR + VAD）
 

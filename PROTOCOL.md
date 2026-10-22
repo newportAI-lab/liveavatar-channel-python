@@ -429,7 +429,7 @@ or local cancellation does not prove playback completion.
 
 Audio that belongs to the base video is never cleared. New external audio can still be sent after the interrupt.
 
-Send external audio with `send_external_audio(pcm)`, not `response.audio.*`. Omit `external_audio_config` at start to follow the voice format. A non-zero sample rate must be 16000, 24000, 44100, or 48000.
+Send accompaniment with `send_external_audio(pcm)`, not `response.audio.*`. Omit `external_audio_config` at start to follow the voice format. A non-zero sample rate must be 16000, 24000, 44100, or 48000. During platform TTS, play a developer voice turn with `send_external_playback(request_id, response_id, frames)`. That sends `response.audio.start` and `response.audio.finish` with `data.purpose=external`, then the existing binary frames. The SDK does not resample.
 
 A signal for **explicit programmatic interruption**, initiated by the Developer Service in scenarios not triggered by any user input event (e.g., backend timeout, business-logic override).
 

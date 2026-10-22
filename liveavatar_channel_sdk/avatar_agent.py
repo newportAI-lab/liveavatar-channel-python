@@ -442,6 +442,18 @@ class AvatarAgent:
             MessageBuilder.response_audio_finish(request_id, response_id, metadata)
         )
 
+    async def send_external_playback(
+        self, request_id: str, response_id: str, frames
+    ) -> None:
+        """平台 TTS 会话中的外部 PCM 轮。不改采样率，帧头仍声明 PCM 自己的格式。"""
+        marker = {"purpose": "external"}
+        await self.send_response_audio_start(request_id, response_id, marker)
+        try:
+            async for frame in frames:
+                await self.send_audio_frame(frame)
+        finally:
+            await self.send_response_audio_finish(request_id, response_id, marker)
+
     # -- send: idle prompt audio (Developer TTS mode) ----------------------
 
     async def send_prompt_audio_start(self) -> None:
