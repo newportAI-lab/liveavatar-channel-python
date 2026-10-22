@@ -4,7 +4,7 @@
 
 A Python SDK for the Live Avatar WebSocket protocol. Connect your AI backend to a live avatar service with text, audio, and image communication.
 
-**Version 0.4.2**
+**Version 0.4.3**
 
 ## Installation
 
@@ -230,7 +230,8 @@ All send methods are available on `AvatarAgent`. They are grouped by protocol ro
 | `send_response_audio_finish(request_id, response_id, metadata=None)` | `response.audio.finish` | Signal that audio output finished |
 | `send_prompt_audio_start()` | `response.audio.promptStart` | Idle-prompt audio starting |
 | `send_prompt_audio_finish()` | `response.audio.promptFinish` | Idle-prompt audio finished |
-| `send_external_audio(pcm, timestamp_us=0)` | *(binary)* | External PCM. It is played and does not drive lip sync. Do not use `response.audio.*` |
+| `send_external_audio(pcm, timestamp_us=0)` | *(binary)* | Accompaniment PCM. It is played and does not drive lip sync. Do not use `response.audio.*` |
+| `send_external_playback(request_id, response_id, frames)` | `response.audio.start` / binary / `response.audio.finish` | Play developer PCM as the voice turn during platform TTS. `data.purpose` is `external`. The SDK does not resample |
 
 ### Developer ASR / Omni (you run ASR + VAD on raw audio)
 

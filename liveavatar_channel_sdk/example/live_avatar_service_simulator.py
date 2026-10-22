@@ -184,6 +184,14 @@ if __name__ == "__main__":
 # The first packet may be longer than later packets, but not over that limit.
 # await agent.send_external_audio(pcm)
 # await agent.send_external_audio(pcm, timestamp_us=0)
+# Platform TTS song. This is the voice turn, not accompaniment.
+# song_pcm is 24000 Hz, mono, 16-bit. The SDK does not resample.
+# song = AudioFrame(channel=0, key=1, seq=0, timestamp=0, sample_rate=1,
+#                   samples=len(song_pcm) // 2, codec=0, payload=song_pcm)
+# async def song_frames():
+#     yield song
+# await agent.send_external_playback(request_id, response_id, song_frames())
+# Sends response.audio.start and response.audio.finish with data.purpose=external.
 #
 # send_interrupt adds the string parameter interrupt_scope.
 # await agent.send_interrupt()  # same as VOICE_ONLY: stop voice only
