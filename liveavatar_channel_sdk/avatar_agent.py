@@ -442,9 +442,7 @@ class AvatarAgent:
             MessageBuilder.response_audio_finish(request_id, response_id, metadata)
         )
 
-    async def send_external_playback(
-        self, request_id: str, response_id: str, frames
-    ) -> None:
+    async def send_external_playback(self, request_id: str, response_id: str, frames) -> None:
         """平台 TTS 会话中的外部 PCM 轮。不改采样率，帧头仍声明 PCM 自己的格式。"""
         marker = {"purpose": "external"}
         await self.send_response_audio_start(request_id, response_id, marker)
@@ -668,6 +666,11 @@ def _validate_external_audio_config(config: dict) -> None:
 
 
 def encode_external_audio_frame(sequence: int, timestamp_us: int, pcm: bytes) -> bytes:
-    return b"EXAU" + bytes([1]) + sequence.to_bytes(8, "big") + int(timestamp_us).to_bytes(
-        8, "big", signed=True
-    ) + len(pcm).to_bytes(4, "big") + pcm
+    return (
+        b"EXAU"
+        + bytes([1])
+        + sequence.to_bytes(8, "big")
+        + int(timestamp_us).to_bytes(8, "big", signed=True)
+        + len(pcm).to_bytes(4, "big")
+        + pcm
+    )

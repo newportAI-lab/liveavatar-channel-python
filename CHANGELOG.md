@@ -2,6 +2,10 @@
 
 Notable changes to this SDK are documented here. The date is the release day.
 
+## [0.4.4] - 2026-10-23
+
+- Fixed: `AudioFrame.unpack()` and `ImageFrame.unpack()` now reject truncated payloads instead of silently returning incomplete frame data.
+
 ## [0.4.3] - 2026-10-22
 
 1. Added: `send_external_playback(request_id, response_id, frames)` plays developer PCM as the voice turn while platform TTS is enabled. It sends `response.audio.start` and `response.audio.finish` with `data.purpose=external`, then the existing binary audio frames. The SDK does not resample. This is not `send_external_audio`, which remains accompaniment and does not replace speech. If a frame fails after start, `response.audio.finish` is still sent. The platform Dispatcher must already accept `purpose=external`.

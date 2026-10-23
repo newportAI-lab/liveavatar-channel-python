@@ -4,7 +4,11 @@ from liveavatar_channel_sdk.image_frame import ImageFrame
 
 def test_round_trip_basic():
     frame = ImageFrame(
-        format=0, quality=85, image_id=1, width=640, height=480,
+        format=0,
+        quality=85,
+        image_id=1,
+        width=640,
+        height=480,
         payload=b"jpeg_data",
     )
     assert ImageFrame.unpack(frame.pack()) == frame
@@ -12,7 +16,11 @@ def test_round_trip_basic():
 
 def test_round_trip_png():
     frame = ImageFrame(
-        format=1, quality=100, image_id=65535, width=1920, height=1080,
+        format=1,
+        quality=100,
+        image_id=65535,
+        width=1920,
+        height=1080,
         payload=b"\x89PNG" + b"\x00" * 100,
     )
     assert ImageFrame.unpack(frame.pack()) == frame
@@ -64,7 +72,7 @@ def test_empty_payload():
 
 
 def test_large_payload():
-    payload = b"\xAB\xCD" * 10_000  # 20 000 bytes
+    payload = b"\xab\xcd" * 10_000  # 20 000 bytes
     frame = ImageFrame(payload=payload)
     unpacked = ImageFrame.unpack(frame.pack())
     assert unpacked.payload == payload
@@ -91,3 +99,11 @@ def test_wrong_type_raises():
 def test_too_short_raises():
     with pytest.raises(ValueError, match="too short"):
         ImageFrame.unpack(b"\x00" * 11)
+
+
+def test_truncated_payload_raises():
+    data = bytearray(ImageFrame(payload=b"abc").pack())
+    data[8:12] = (10).to_bytes(4, "big")
+
+    with pytest.raises(ValueError, match="payload truncated"):
+        ImageFrame.unpack(bytes(data))

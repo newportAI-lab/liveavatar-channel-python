@@ -24,7 +24,7 @@ class ExponentialBackoffStrategy:
     @property
     def next_delay(self) -> float:
         """Return delay for the current attempt without incrementing."""
-        return min(self._base * (2 ** self._attempt), self._max)
+        return min(self._base * (2**self._attempt), self._max)
 
     async def wait(self) -> None:
         """Sleep for the current backoff delay, then increment attempt counter."""

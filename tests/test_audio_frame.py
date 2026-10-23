@@ -4,16 +4,28 @@ from liveavatar_channel_sdk.audio_frame import AudioFrame
 
 def test_round_trip_basic():
     frame = AudioFrame(
-        channel=0, key=1, seq=100, timestamp=5000,
-        sample_rate=0, samples=640, codec=0, payload=b"audio_data",
+        channel=0,
+        key=1,
+        seq=100,
+        timestamp=5000,
+        sample_rate=0,
+        samples=640,
+        codec=0,
+        payload=b"audio_data",
     )
     assert AudioFrame.unpack(frame.pack()) == frame
 
 
 def test_round_trip_stereo_opus():
     frame = AudioFrame(
-        channel=1, key=0, seq=4095, timestamp=1048575,
-        sample_rate=2, samples=480, codec=1, payload=b"\x00\xff" * 50,
+        channel=1,
+        key=0,
+        seq=4095,
+        timestamp=1048575,
+        sample_rate=2,
+        samples=480,
+        codec=1,
+        payload=b"\x00\xff" * 50,
     )
     assert AudioFrame.unpack(frame.pack()) == frame
 
@@ -84,3 +96,11 @@ def test_wrong_type_raises():
 def test_too_short_raises():
     with pytest.raises(ValueError, match="too short"):
         AudioFrame.unpack(b"\x00" * 8)
+
+
+def test_truncated_payload_raises():
+    data = bytearray(AudioFrame(payload=b"abc").pack())
+    data[7:9] = (10).to_bytes(2, "big")
+
+    with pytest.raises(ValueError, match="payload truncated"):
+        AudioFrame.unpack(bytes(data))

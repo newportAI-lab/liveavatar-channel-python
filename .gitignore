@@ -10,5 +10,6 @@ __pycache__/
 /.codegraph
 /.worktrees/
 /dist
+/.env
 AGENTS.md
 {{pkgetc}}/cert.pem

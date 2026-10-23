@@ -38,7 +38,7 @@ def _pack_header(
     val |= (image_id & 0xFFFF) << 64
     val |= (width & 0xFFFF) << 48
     val |= (height & 0xFFFF) << 32
-    val |= (length & 0xFFFFFFFF)
+    val |= length & 0xFFFFFFFF
     return val.to_bytes(_HEADER_SIZE, "big")
 
 
@@ -64,11 +64,11 @@ def _unpack_header(data: bytes) -> dict:
 class ImageFrame:
     """Represents a single binary image frame (12-byte header + payload)."""
 
-    format: int = 0       # 0=JPG, 1=PNG, 2=WebP, 3=GIF, 4=AVIF
-    quality: int = 85     # 0–255
-    image_id: int = 0     # 0–65535
-    width: int = 0        # pixels
-    height: int = 0       # pixels
+    format: int = 0  # 0=JPG, 1=PNG, 2=WebP, 3=GIF, 4=AVIF
+    quality: int = 85  # 0–255
+    image_id: int = 0  # 0–65535
+    width: int = 0  # pixels
+    height: int = 0  # pixels
     payload: bytes = field(default=b"")
 
     def pack(self) -> bytes:
@@ -96,7 +96,12 @@ class ImageFrame:
                 f"Not an image frame: type bits = {fields['type_']:#04b}, expected 0b10"
             )
         length = fields["length"]
-        payload = data[_HEADER_SIZE: _HEADER_SIZE + length]
+        if len(data) < _HEADER_SIZE + length:
+            raise ValueError(
+                f"Image frame payload truncated: expected {length} bytes, "
+                f"got {len(data) - _HEADER_SIZE}"
+            )
+        payload = data[_HEADER_SIZE : _HEADER_SIZE + length]
         return cls(
             format=fields["format_"],
             quality=fields["quality"],

@@ -43,7 +43,7 @@ def _pack_header(
     val |= (samples & 0xFFF) << 22
     val |= (codec & 0x3) << 20
     # reserved bits 16-19 remain 0
-    val |= (length & 0xFFFF)
+    val |= length & 0xFFFF
     return val.to_bytes(_HEADER_SIZE, "big")
 
 
@@ -70,13 +70,13 @@ def _unpack_header(data: bytes) -> dict:
 class AudioFrame:
     """Represents a single binary audio frame (9-byte header + payload)."""
 
-    channel: int = 0       # 0=Mono, 1=Stereo
-    key: int = 0           # keyframe / Opus resync flag
-    seq: int = 0           # wrapping 0–4095
-    timestamp: int = 0     # ms, wrapping 0–1,048,575
-    sample_rate: int = 0   # 0=16 kHz, 1=24 kHz, 2=48 kHz
-    samples: int = 0       # samples per frame
-    codec: int = 0         # 0=PCM, 1=Opus
+    channel: int = 0  # 0=Mono, 1=Stereo
+    key: int = 0  # keyframe / Opus resync flag
+    seq: int = 0  # wrapping 0–4095
+    timestamp: int = 0  # ms, wrapping 0–1,048,575
+    sample_rate: int = 0  # 0=16 kHz, 1=24 kHz, 2=48 kHz
+    samples: int = 0  # samples per frame
+    codec: int = 0  # 0=PCM, 1=Opus
     payload: bytes = field(default=b"")
 
     def pack(self) -> bytes:
@@ -106,7 +106,12 @@ class AudioFrame:
                 f"Not an audio frame: type bits = {fields['type_']:#04b}, expected 0b01"
             )
         length = fields["length"]
-        payload = data[_HEADER_SIZE: _HEADER_SIZE + length]
+        if len(data) < _HEADER_SIZE + length:
+            raise ValueError(
+                f"Audio frame payload truncated: expected {length} bytes, "
+                f"got {len(data) - _HEADER_SIZE}"
+            )
+        payload = data[_HEADER_SIZE : _HEADER_SIZE + length]
         return cls(
             channel=fields["channel"],
             key=fields["key"],
