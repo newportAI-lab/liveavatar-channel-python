@@ -218,6 +218,17 @@ already scopes the stream. If either required resource ID is missing or blank,
 the SDK treats the payload as malformed and does not invoke
 `on_resource_transition`.
 
+#### Developer Backend → Live Avatar Service (scene.switchVideo)
+
+Send this custom event to change the playing video. Use
+`AvatarAgent.send_custom_event(request_id, event, data)`. Field names are
+camelCase. Items in `onceVideos`, `loopVideos`, and `videoChoreographyGroups`
+may be a resource ID or a base-video alias. `mode` is `HARD` or `GRACEFUL`
+(default). Unknown values become `GRACEFUL`.
+
+The call returns after the event is written. Watch `scene.resourceTransition`.
+Field table and examples: [README.md](./README.md#switch-video).
+
 ---
 
 ### 2️⃣ Heartbeat

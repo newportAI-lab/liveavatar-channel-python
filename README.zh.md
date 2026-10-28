@@ -453,15 +453,44 @@ python -m liveavatar_channel_sdk.example.live_avatar_service_simulator
 | `control.interrupt` | `send_interrupt` | 主动打断（业务逻辑驱动） |
 | `system.prompt` | `send_prompt` | 推送空闲唤醒文本 |
 | `error` | `send_error` | 错误报告 |
-| *(自定义)* | `send_custom_event` | 标准协议之外的应用自定义事件 |
+| *(自定义)* | `send_custom_event` | 应用自定义事件，包括 `scene.switchVideo`。见 [切视频](#切视频) |
 
 > **双向事件：** `input.asr.*` / `input.voice.*` 由 ASR 提供方发送（Omni 模式下由开发者发送，否则由平台发送）。SDK 同时提供监听器回调（接收）和发送辅助方法（发送）。当你的代码运行 ASR 时，在配置中设置 `developer_asr=True`。
 
 完整协议规范请参见 [`PROTOCOL.zh.md`](PROTOCOL.zh.md)。
 
+## 切视频
+
+没有 `switch_video()`。`await agent.start()` 之后，建议等到 `on_scene_ready()`，再用 `send_custom_event(request_id, event, data)` 发送 `scene.switchVideo`。参数顺序是 request id 在前。三个视频字段至少一个非空。消息写出后即返回，画面是否切过去看 `on_resource_transition`。
+
+```python
+await agent.send_custom_event(
+    request_id=None,
+    event="scene.switchVideo",
+    data={
+        "onceVideos": ["fist_bump"],  # resourceId 或 alias
+        "loopVideos": ["01KTJNMD7NZJF4KMGCCFSTJN4X"],
+        "mode": "HARD",  # HARD 硬切，GRACEFUL 软切（默认）
+    },
+)
+```
+
+| 字段 | 含义 |
+|---|---|
+| `onceVideos` | 按顺序各播一次，然后进入循环内容 |
+| `loopVideos` | `onceVideos` 之后循环。编排分组非空时忽略 |
+| `videoChoreographyGroups` | 分组抽片，每组随机一条 |
+| `mode` | `GRACEFUL`（软切，默认）、`HARD`（硬切）。无法识别时按 `GRACEFUL` |
+
+alias：3–32 位，字母开头，小写字母数字下划线，不能以下划线结尾。字段名必须是 camelCase。alias 需要 0.4.1 或更高。`live_avatar_service_simulator.py` 里这段调用是注释。
+
 ### 心跳
 
 WebSocket 原生 ping/pong 控制帧（RFC 6455，`0x9` / `0xA`）由 `websockets` 库自动处理，`ping_interval=5` 秒。
+
+## 更新记录
+
+[CHANGELOG.zh-CN.md](./CHANGELOG.zh-CN.md) 
 
 ## 运行测试
 

@@ -212,6 +212,17 @@ SDK 类型数据中没有 `streamId`。当前 WebSocket 会话已经限定了 st
 必填资源 ID 缺失或为空，SDK 会把 payload 视为格式错误，并且不会触发
 `on_resource_transition`。
 
+#### Server（开发者服务）→ Client（数字人服务）— scene.switchVideo
+
+用自定义事件更换正在播放的视频。调用
+`AvatarAgent.send_custom_event(request_id, event, data)`。字段名必须是 camelCase。
+`onceVideos`、`loopVideos`、`videoChoreographyGroups` 的每一项可以是 resourceId
+或底板 alias。`mode` 为 `HARD` 或 `GRACEFUL`（默认）。无法识别时按
+`GRACEFUL`。
+
+方法在消息写出后即返回。画面切换看 `scene.resourceTransition`。字段表和示例见
+[README.zh.md](./README.zh.md#切视频)。
+
 ---
 
 ### 2️⃣ 心跳

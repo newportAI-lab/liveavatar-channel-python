@@ -468,15 +468,44 @@ Examples: `session.init`, `input.text`, `response.chunk`, `control.interrupt`
 | `control.interrupt` | `send_interrupt` | Proactive interrupt (business-logic-driven) |
 | `system.prompt` | `send_prompt` | Push idle-wakeup text |
 | `error` | `send_error` | Error report |
-| *(custom)* | `send_custom_event` | Application-specific event not in the standard protocol |
+| *(custom)* | `send_custom_event` | Application-specific event, including `scene.switchVideo`. See [Switch video](#switch-video) |
 
 > **Bidirectional events:** `input.asr.*` / `input.voice.*` are sent by whoever provides ASR (developer in Omni mode, platform otherwise). The SDK provides both listener callbacks (receive) and send helpers (transmit) for these events. Set `developer_asr=True` in your config when your code runs ASR.
 
 For the full protocol specification see [`PROTOCOL.md`](PROTOCOL.md).
 
+## Switch video
+
+There is no `switch_video()`. After `await agent.start()`, preferably after `on_scene_ready()`, send `scene.switchVideo` with `send_custom_event(request_id, event, data)`. Argument order is request id first. At least one of `onceVideos`, `loopVideos`, `videoChoreographyGroups` must be non-empty. The call returns after the event is written; watch `on_resource_transition` for the actual cut.
+
+```python
+await agent.send_custom_event(
+    request_id=None,
+    event="scene.switchVideo",
+    data={
+        "onceVideos": ["fist_bump"],  # resourceId or alias
+        "loopVideos": ["01KTJNMD7NZJF4KMGCCFSTJN4X"],
+        "mode": "HARD",  # HARD immediate, GRACEFUL wait (default)
+    },
+)
+```
+
+| Field | Meaning |
+|---|---|
+| `onceVideos` | Play each item once, then enter loop content |
+| `loopVideos` | Loop after `onceVideos`. Ignored when `videoChoreographyGroups` is non-empty |
+| `videoChoreographyGroups` | Groups of clips; each round picks one item at random from each group |
+| `mode` | `GRACEFUL` (soft cut, default), `HARD` (hard cut). Unknown values become `GRACEFUL` |
+
+Each item may be a resource ID or a base-video alias (3–32 chars, starts with a letter, lowercase letters/digits/underscore, not ending with `_`). Field names must be camelCase. Alias support needs 0.4.1 or later. The example in `live_avatar_service_simulator.py` keeps this call commented.
+
 ### Heartbeat
 
 WebSocket native ping/pong control frames (RFC 6455, `0x9` / `0xA`) are handled automatically by the `websockets` library with `ping_interval=5` s.
+
+## Changelog
+
+[CHANGELOG.md](./CHANGELOG.md)
 
 ## Running Tests
 

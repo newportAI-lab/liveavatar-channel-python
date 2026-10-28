@@ -204,6 +204,7 @@ if __name__ == "__main__":
 # await agent.send_custom_event(request_id, "scene.switchVideo", {
 #     "onceVideos": ["fist_bump"],  # resourceId or alias
 #     "loopVideos": ["01KTJNMD7NZJF4KMGCCFSTJN4X"],
+#     "mode": "HARD",  # HARD immediate, GRACEFUL wait (default)
 # })
 # await agent.stop()
 #
