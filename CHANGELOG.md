@@ -1,5 +1,7 @@
 # Changelog
 
+**English** | [中文](./CHANGELOG.zh-CN.md)
+
 Notable changes to this SDK are documented here. The date is the release day.
 
 ## [0.4.3] - 2026-10-22
