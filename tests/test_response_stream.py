@@ -23,22 +23,12 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
 def test_documentation_describes_response_stream_lifecycle_and_release_version():
     """Documentation must preserve the safe streaming migration contract."""
-    english_protocol = (REPOSITORY_ROOT / "PROTOCOL.md").read_text()
-    chinese_protocol = (REPOSITORY_ROOT / "PROTOCOL.zh.md").read_text()
     english_readme = (REPOSITORY_ROOT / "README.md").read_text()
     chinese_readme = (REPOSITORY_ROOT / "README.zh.md").read_text()
     package_metadata = (REPOSITORY_ROOT / "pyproject.toml").read_text()
-    normalized_english_protocol = " ".join(english_protocol.split())
-    normalized_chinese_protocol = " ".join(chinese_protocol.split())
     normalized_english_readme = " ".join(english_readme.split())
     normalized_chinese_readme = " ".join(chinese_readme.split())
 
-    assert "MUST use the same `requestId` and `responseId`." in normalized_english_protocol
-    assert "MUST be followed by `response.done`" in normalized_english_protocol
-    assert "distinct request IDs may be processed concurrently" in normalized_english_protocol
-    assert "必须使用相同的 `requestId` 和 `responseId`。" in normalized_chinese_protocol
-    assert "必须紧接着发送相同标识符的 `response.done`" in normalized_chinese_protocol
-    assert "不同的 request ID 可按应用策略并发处理" in normalized_chinese_protocol
 
     assert "exactly one active legacy response" in normalized_english_readme
     assert "Zero or multiple matches raise `ResponseStreamStateError`" in normalized_english_readme

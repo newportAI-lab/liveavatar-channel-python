@@ -457,7 +457,7 @@ python -m liveavatar_channel_sdk.example.live_avatar_service_simulator
 
 > **双向事件：** `input.asr.*` / `input.voice.*` 由 ASR 提供方发送（Omni 模式下由开发者发送，否则由平台发送）。SDK 同时提供监听器回调（接收）和发送辅助方法（发送）。当你的代码运行 ASR 时，在配置中设置 `developer_asr=True`。
 
-完整协议规范请参见 [`PROTOCOL.zh.md`](PROTOCOL.zh.md)。
+完整协议规范请参见 [`PROTOCOL.zh.md`](https://newportai-lab.github.io/liveavatar-integration-guide/PROTOCOL.zh.html)。
 
 ## 切视频
 

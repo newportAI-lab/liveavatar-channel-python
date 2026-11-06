@@ -472,7 +472,7 @@ Examples: `session.init`, `input.text`, `response.chunk`, `control.interrupt`
 
 > **Bidirectional events:** `input.asr.*` / `input.voice.*` are sent by whoever provides ASR (developer in Omni mode, platform otherwise). The SDK provides both listener callbacks (receive) and send helpers (transmit) for these events. Set `developer_asr=True` in your config when your code runs ASR.
 
-For the full protocol specification see [`PROTOCOL.md`](PROTOCOL.md).
+For the full protocol specification see [`PROTOCOL.md`](https://newportai-lab.github.io/liveavatar-integration-guide/PROTOCOL.html).
 
 ## Switch video
 
