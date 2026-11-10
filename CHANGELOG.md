@@ -6,8 +6,6 @@
 
 - `AvatarAgentConfig` adds optional string `renderer_profile`: `normal` forces ordinary human without automatic 4K selection, `pet` selects animal, `4k` selects 4K, and None preserves existing selection. The value is sent as `rendererProfile` in `/v1/session/start`.
 
-Upgrade all target Dispatcher instances before using an explicit model. If no instance supports the requested model, session startup fails. Changing the model requires stopping the session and starting a new one.
-
 **English** | [中文](./CHANGELOG.zh-CN.md)
 
 Notable changes to this SDK are documented here. The date is the release day.
