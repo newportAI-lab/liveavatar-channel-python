@@ -158,6 +158,9 @@ class AvatarAgentConfig:
     reconnect: bool = True
     reconnect_base_delay: float = 1.0
     reconnect_max_delay: float = 60.0
+    # Optional string: normal forces human, pet selects animal, 4k selects 4K.
+    # None omits rendererProfile and preserves the platform's existing rules.
+    renderer_profile: str | None = None
 
 
 # ------------------------------------------------------------------
@@ -303,6 +306,10 @@ class AvatarAgent:
             body["voiceId"] = self._config.voice_id
         if self._config.voice_config:
             body["voiceConfig"] = _serialize_voice_config(self._config.voice_config)
+        if self._config.renderer_profile is not None:
+            if self._config.renderer_profile not in ("normal", "pet", "4k"):
+                raise ValueError("renderer_profile must be normal, pet, or 4k")
+            body["rendererProfile"] = self._config.renderer_profile
         if self._config.external_audio_config is not None:
             _validate_external_audio_config(self._config.external_audio_config)
             body["externalAudioConfig"] = self._config.external_audio_config

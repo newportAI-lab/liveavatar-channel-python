@@ -1,5 +1,13 @@
 # 更新记录
 
+## [0.4.5] - 2026-11-10
+
+### Added
+
+- `AvatarAgentConfig` 新增可选字符串参数 `renderer_profile`：normal 强制普通人物且不自动选择 4K，pet 使用动物，4k 使用 4K，`None` 保留原选型规则。通过 `/v1/session/start` 的 JSON 字段 `rendererProfile` 发送。
+
+使用显式模型前，先升级目标环境的全部 Dispatcher 实例。没有实例支持指定模型时，开播失败。更换模型须停止当前会话并新建会话。
+
 [English](./CHANGELOG.md) | **中文**
 
 本文件记录本 SDK 的主要变化。日期为发布日期。

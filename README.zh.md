@@ -4,7 +4,7 @@
 
 用于 Live Avatar WebSocket 协议的 Python SDK。将你的 AI 后端连接到实时数字人服务，支持文本、音频和图像通信。
 
-**版本 0.4.4**
+**版本 0.4.5**
 
 ## 安装
 
@@ -29,6 +29,16 @@ uv sync
 - `httpx >= 0.25`
 
 无其他运行时依赖。
+
+## 开播嘴唇驱动模型
+
+`AvatarAgentConfig` 新增可选字符串 `renderer_profile`：`"normal"` 强制普通人物模型，不按分辨率自动选择 4K；`"pet"` 使用动物模型；`"4k"` 使用 4K 模型。`None` 时不发送字段，保留原规则。通过 `/v1/session/start` 的 JSON 字段 `rendererProfile` 发送。
+
+```python
+config = AvatarAgentConfig(api_key=api_key, avatar_id=avatar_id, renderer_profile="pet")
+```
+
+仅覆盖本次会话，优先于 Nacos avatar 映射和数字人配置，不回写共享配置。先升级目标全部 Dispatcher 实例，旧服务可能忽略字段。指定模型不可用时失败，不自动换模型。换模型须停播后新建会话；切视频不切模型。
 
 ## 快速开始
 
