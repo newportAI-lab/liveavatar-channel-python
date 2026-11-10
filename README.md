@@ -4,7 +4,7 @@
 
 A Python SDK for the Live Avatar WebSocket protocol. Connect your AI backend to a live avatar service with text, audio, and image communication.
 
-**Version 0.4.4**
+**Version 0.4.5**
 
 ## Installation
 
@@ -29,6 +29,16 @@ uv sync
 - `httpx >= 0.25`
 
 No other runtime dependencies.
+
+## Session lip-sync model
+
+`AvatarAgentConfig` adds optional string `renderer_profile`: `"normal"` forces ordinary human without automatic 4K selection, `"pet"` selects animal, and `"4k"` selects 4K. `None` omits the field and preserves existing platform rules. It is sent as `rendererProfile` in `/v1/session/start`.
+
+```python
+config = AvatarAgentConfig(api_key=api_key, avatar_id=avatar_id, renderer_profile="pet")
+```
+
+The choice overrides Nacos avatar mapping and avatar configuration for this session only. Upgrade all target Dispatcher instances first; older servers may ignore this field. An unavailable explicit model fails instead of switching models. Stop and start a new session to change models; switching video does not change the model.
 
 ## Quick Start
 
