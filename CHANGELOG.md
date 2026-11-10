@@ -1,14 +1,14 @@
 # Changelog
 
+**English** | [中文](./CHANGELOG.zh-CN.md)
+
+Notable changes to this SDK are documented here. The date is the release day.
+
 ## [0.4.5] - 2026-11-10
 
 ### Added
 
 - `AvatarAgentConfig` adds optional string `renderer_profile`: `normal` forces ordinary human without automatic 4K selection, `pet` selects animal, `4k` selects 4K, and None preserves existing selection. The value is sent as `rendererProfile` in `/v1/session/start`.
-
-**English** | [中文](./CHANGELOG.zh-CN.md)
-
-Notable changes to this SDK are documented here. The date is the release day.
 
 ## [0.4.4] - 2026-10-23
 
