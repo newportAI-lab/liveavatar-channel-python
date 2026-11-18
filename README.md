@@ -4,7 +4,7 @@
 
 A Python SDK for the Live Avatar WebSocket protocol. Connect your AI backend to a live avatar service with text, audio, and image communication.
 
-**Version 0.4.5**
+**Version 0.4.6**
 
 ## Installation
 
@@ -32,10 +32,19 @@ No other runtime dependencies.
 
 ## Session lip-sync model
 
-`AvatarAgentConfig` adds optional string `renderer_profile`: `"normal"` forces ordinary human without automatic 4K selection, `"pet"` selects animal, and `"4k"` selects 4K. `None` omits the field and preserves existing platform rules. It is sent as `rendererProfile` in `/v1/session/start`.
+To select a rendering model for the session, set the optional `renderer_profile` string in `AvatarAgentConfig`.
+
+| Value | Rendering model |
+| --- | --- |
+| `normal` | Standard human model; disables automatic 4K selection. |
+| `pet` | Animal model. |
+| `4k` | 4K model. |
+| `cartoon` | Cartoon model. |
+
+If `renderer_profile` is omitted or set to `None`, the platform follows the avatar's default model selection rules.
 
 ```python
-config = AvatarAgentConfig(api_key=api_key, avatar_id=avatar_id, renderer_profile="pet")
+config = AvatarAgentConfig(api_key=api_key, avatar_id=avatar_id, renderer_profile="cartoon")
 ```
 
 The selected model applies to this session.

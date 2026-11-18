@@ -4,6 +4,12 @@
 
 Notable changes to this SDK are documented here. The date is the release day.
 
+## [0.4.6] - 2026-11-18
+
+### Added
+
+- Added the `cartoon` rendering model. To select it, set `renderer_profile="cartoon"` in `AvatarAgentConfig`.
+
 ## [0.4.5] - 2026-11-10
 
 ### Added

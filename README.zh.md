@@ -4,7 +4,7 @@
 
 用于 Live Avatar WebSocket 协议的 Python SDK。将你的 AI 后端连接到实时数字人服务，支持文本、音频和图像通信。
 
-**版本 0.4.5**
+**版本 0.4.6**
 
 ## 安装
 
@@ -32,10 +32,19 @@ uv sync
 
 ## 开播嘴唇驱动模型
 
-`AvatarAgentConfig` 新增可选字符串 `renderer_profile`：`"normal"` 强制普通人物模型，不按分辨率自动选择 4K；`"pet"` 使用动物模型；`"4k"` 使用 4K 模型。`None` 时不发送字段，保留原规则。通过 `/v1/session/start` 的 JSON 字段 `rendererProfile` 发送。
+在 `AvatarAgentConfig` 中设置可选字符串参数 `renderer_profile`，为本次会话指定渲染模型。
+
+| 参数值 | 渲染模型 |
+| --- | --- |
+| `normal` | 普通人物模型，不会自动选择 4K。 |
+| `pet` | 动物模型。 |
+| `4k` | 4K 模型。 |
+| `cartoon` | 卡通模型。 |
+
+省略 `renderer_profile` 或将其设为 `None` 时，平台按 Avatar 的默认规则选模。
 
 ```python
-config = AvatarAgentConfig(api_key=api_key, avatar_id=avatar_id, renderer_profile="pet")
+config = AvatarAgentConfig(api_key=api_key, avatar_id=avatar_id, renderer_profile="cartoon")
 ```
 
 所选模型用于本次会话。
