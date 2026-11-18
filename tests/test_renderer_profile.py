@@ -5,7 +5,7 @@ import pytest
 from liveavatar_channel_sdk.avatar_agent import AvatarAgent, AvatarAgentConfig, AgentListener
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("profile", [None, "normal", "pet", "4k"])
+@pytest.mark.parametrize("profile", [None, "normal", "pet", "4k", "cartoon", "future-model", "", " \t\n", "PET", "pet ", "baby"])
 async def test_model_body(profile):
     captured = []
     def handle(request):
@@ -21,7 +21,7 @@ async def test_model_body(profile):
         assert captured[0]["rendererProfile"] == profile
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("profile", ["", "PET", "pet ", "baby", 1, True, {}, []])
+@pytest.mark.parametrize("profile", [1, True, {}, []])
 async def test_invalid_model_never_sends(profile):
     agent = AvatarAgent(AvatarAgentConfig(api_key="test", avatar_id="avatar", renderer_profile=profile), AgentListener())
     def fail(request):

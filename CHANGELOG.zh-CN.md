@@ -4,6 +4,12 @@
 
 本文件记录本 SDK 的主要变化。日期为发布日期。
 
+## [0.4.6] - 2026-11-18
+
+### Added
+
+- 新增卡通渲染模型 `cartoon`。在 `AvatarAgentConfig` 中设置 `renderer_profile="cartoon"` 即可选择该模型。
+
 ## [0.4.5] - 2026-11-10
 
 ### Added

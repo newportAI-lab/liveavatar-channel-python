@@ -98,8 +98,9 @@ class EchoAgent(AgentListener):
 
 async def main() -> None:
     # Optional per-session model (not enabled in this demo's default flow):
-    # config = AvatarAgentConfig(api_key=API_KEY, avatar_id=AVATAR_ID, renderer_profile="pet")
-    # String values: normal forces ordinary human, pet selects animal, 4k selects 4K.
+    # config = AvatarAgentConfig(api_key=API_KEY, avatar_id=AVATAR_ID, renderer_profile="cartoon")
+    # String values: normal forces ordinary human, pet selects animal, 4k selects 4K, cartoon selects cartoon.
+    # Any other platform-supported model name can be passed unchanged; no SDK update needed.
     # None omits rendererProfile and follows existing platform rules.
     listener = EchoAgent()
     config = AvatarAgentConfig(
