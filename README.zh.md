@@ -4,7 +4,7 @@
 
 用于 Live Avatar WebSocket 协议的 Python SDK。将你的 AI 后端连接到实时数字人服务，支持文本、音频和图像通信。
 
-**版本 0.4.6**
+**版本 0.4.7**
 
 ## 安装
 
@@ -230,6 +230,16 @@ packed = frame.pack()   # bytes（9 字节头部 + 负载）
 | `send_response_chunk(request_id, response_id, seq, timestamp, text, metadata=None)` | `response.chunk` | 已弃用；流式文本片段 |
 | `send_response_done(request_id, response_id, metadata=None)` | `response.done` | 已弃用；流式响应结束 |
 | `send_response_cancel(response_id)` | `response.cancel` | 已弃用；按精确 response ID 取消进行中的响应流 |
+
+### HiThink 情感 SSML
+
+**普通文本。** 无需指定情感时，直接调用 `await agent.send_prompt(text)`。在提示流或回复流中，直接调用 `await prompt.send(text)` 或 `await response.send_chunk(text)`。无需构造 SSML 或传 `label`。
+
+**情感 SSML。** 仅用于配置了平台 HiThink TTS 的数字人，音色 ID 取自该数字人的 HiThink 配置。导入 `liveavatar_channel_sdk.hithink_ssml` 中的辅助方法。将未转义的普通文本传给 `hithink_emotion_ssml_segments(text, voice_id, label)`，同一个 `label` 应用于每个片段。按列表顺序将每个片段单独发到同一条提示流或回复流。完整 SSML 能放进一片时，返回一个片段。
+
+**情感标签。** HiThink 文档列出 `natural`、`non`、`neutral`、`happy`、`sad`、`angry`、`fearful`、`disgust`、`surprised`，实际效果取决于音色。拼错或未识别的标签仍会写入 SSML，HiThink 按未指定情感处理。空标签或含非法 XML 字符的标签会在生成时抛出 `ValueError`。
+
+**片段长度。** 默认每片最多 3,000 个 Unicode 码点，包含标签和 XML 转义。可用 `hithink_emotion_ssml_segments_with_limit(text, voice_id, label, 4000)` 自定义。播放建议不超过 4,000，参数允许 1 至 10,000，且必须能容纳标签和转义后的正文。
 
 ### Developer TTS（你直接提供音频帧）
 

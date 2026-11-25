@@ -14,6 +14,22 @@ Configuration via environment variables::
     PLATFORM_URL   Platform base URL (default: http://localhost:8080)
     API_KEY        API Key (default: sk-local-test-key)
     AVATAR_ID      Avatar ID (default: default-avatar)
+
+For a prompt without an explicit emotion, send plain text directly::
+
+    await agent.send_prompt("Are you still there?")
+
+For an emotion prompt, use an avatar configured with HiThink TTS and its
+configured HiThink voice ID::
+
+    from liveavatar_channel_sdk.hithink_ssml import hithink_emotion_ssml_segments
+    fragments = hithink_emotion_ssml_segments(text, voice_id, "happy")
+    # Optional custom limit for the same loop. Prefer 4,000 or fewer code points.
+    # from liveavatar_channel_sdk.hithink_ssml import hithink_emotion_ssml_segments_with_limit
+    # fragments = hithink_emotion_ssml_segments_with_limit(text, voice_id, "happy", 4000)
+    async with agent.prompt_stream(request_id) as prompt:
+        for fragment in fragments:
+            await prompt.send(fragment)
 """
 
 from __future__ import annotations
