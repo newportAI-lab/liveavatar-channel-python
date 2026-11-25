@@ -4,7 +4,7 @@
 
 A Python SDK for the Live Avatar WebSocket protocol. Connect your AI backend to a live avatar service with text, audio, and image communication.
 
-**Version 0.4.6**
+**Version 0.4.7**
 
 ## Installation
 
@@ -239,6 +239,16 @@ All send methods are available on `AvatarAgent`. They are grouped by protocol ro
 | `send_response_chunk(request_id, response_id, seq, timestamp, text, metadata=None)` | `response.chunk` | Deprecated; streaming text chunk |
 | `send_response_done(request_id, response_id, metadata=None)` | `response.done` | Deprecated; end of streaming response |
 | `send_response_cancel(response_id)` | `response.cancel` | Deprecated; cancel an in-progress response stream by exact response ID |
+
+### HiThink emotion SSML
+
+**Plain text.** For speech without an explicit emotion, call `await agent.send_prompt(text)`. In a prompt or response stream, pass the plain text to `await prompt.send(text)` or `await response.send_chunk(text)`. Skip SSML generation and the `label` parameter.
+
+**Emotion SSML.** Use this only for avatars configured with platform HiThink TTS. Use the HiThink voice ID from the avatar configuration. Import the helpers from `liveavatar_channel_sdk.hithink_ssml`. Pass unescaped plain text to `hithink_emotion_ssml_segments(text, voice_id, label)`. The same label applies to every fragment. Send each fragment separately, in list order, within the same prompt or response stream. If the complete SSML fits within one fragment, the list contains one item.
+
+**Emotion labels.** HiThink documents `natural`, `non`, `neutral`, `happy`, `sad`, `angry`, `fearful`, `disgust`, `surprised`. The effect depends on the voice. The SDK includes unrecognized labels in the SSML. HiThink treats an unrecognized label as speech without an explicit emotion. A blank label or a label containing invalid XML characters raises `ValueError` during generation.
+
+**Fragment limit.** The default is 3,000 Unicode code points per fragment, including tags and XML escapes. Set a custom limit with `hithink_emotion_ssml_segments_with_limit(text, voice_id, label, 4000)`. Prefer 4,000 or fewer for playback. The valid range is 1 to 10,000, and the limit must leave room for the markup and escaped text.
 
 ### Developer TTS (you provide audio frames directly)
 

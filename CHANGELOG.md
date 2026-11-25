@@ -4,6 +4,10 @@
 
 Notable changes to this SDK are documented here. The date is the release day.
 
+## [0.4.7] - 2026-11-25
+
+- Add list-returning emotion SSML helpers for avatars configured with HiThink TTS. Each closed fragment defaults to at most 3,000 Unicode code points. Custom limits up to 10,000 are accepted. Prefer 4,000 or fewer for playback.
+
 ## [0.4.6] - 2026-11-18
 
 ### Added
